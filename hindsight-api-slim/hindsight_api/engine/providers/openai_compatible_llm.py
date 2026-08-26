@@ -1109,12 +1109,11 @@ class OpenAICompatibleLLM(LLMInterface):
         return DEFAULT_VERIFICATION_MAX_COMPLETION_TOKENS
 
     async def verify_connection(self) -> None:
-        """
-        Verify that the provider is configured correctly by making a simple test call.
+        """Verify the provider with a startup probe, except for local inference endpoints."""
+        if urlparse(self.base_url or "").hostname in {"localhost", "127.0.0.1", "::1"}:
+            logger.info(f"Skipping startup probe for local endpoint: {self.provider}/{self.model}")
+            return
 
-        Raises:
-            RuntimeError: If the connection test fails.
-        """
         try:
             logger.info(f"Verifying connection: {self.provider}/{self.model}")
             await self.call(
