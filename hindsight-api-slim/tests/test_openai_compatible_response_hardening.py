@@ -173,6 +173,17 @@ async def test_verification_uses_larger_budget_for_other_compatible_gateways():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("host", ["localhost", "127.0.0.1", "[::1]"])
+async def test_verification_skips_loopback_inference_endpoints(host: str):
+    llm = OpenAICompatibleLLM(
+        provider="openai", api_key="test-key", base_url=f"http://{host}:4242/v1", model="test-model"
+    )
+    with patch.object(llm._client.chat.completions, "create", new_callable=AsyncMock) as create:
+        await llm.verify_connection()
+    create.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_error_payload_with_no_choices_raises_clear_provider_error_without_retry():
     llm = _llm()
     create = AsyncMock(
