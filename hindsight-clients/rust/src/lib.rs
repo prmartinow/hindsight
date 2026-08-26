@@ -79,7 +79,7 @@ mod tests {
 
         // Use a custom reqwest client with longer timeout for LLM operations
         let http_client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(120))
+            .timeout(std::time::Duration::from_secs(600))
             .build()
             .expect("Failed to build HTTP client");
         let client = Client::new_with_client(&api_url, http_client);
