@@ -7,6 +7,7 @@ native FastMCP server.
 """
 
 import logging
+import os
 import sys
 from typing import Any, Dict
 
@@ -16,8 +17,10 @@ from hindsight_api import MemoryEngine
 from hindsight_api.extensions.mcp import MCPExtension
 
 # Ensure agent-memory modules are importable
-AGENT_MEMORY_DB_PATH = "/mnt/data/agent-memory/db"
-AGENT_MEMORY_TRACES_PATH = "/mnt/data/agent-memory/traces"
+_DEFAULT_BASE = os.path.join(os.sep, "mnt", "data", "agent-memory")
+_BASE_PATH = os.environ.get("AGENT_MEMORY_ROOT", _DEFAULT_BASE)
+AGENT_MEMORY_DB_PATH = os.path.join(_BASE_PATH, "db")
+AGENT_MEMORY_TRACES_PATH = os.path.join(_BASE_PATH, "traces")
 
 for path in (AGENT_MEMORY_DB_PATH, AGENT_MEMORY_TRACES_PATH):
     if path not in sys.path:
@@ -55,7 +58,7 @@ class AgentMemoryMCPExtension(MCPExtension):
         ) -> Dict[str, Any]:
             """
             Creates, updates, or deletes a standing repository coding standard, engineering rule,
-            or workflow policy under /mnt/data/agent-memory/rules/ with Git versioning.
+            or workflow policy in the procedural rules store with Git versioning.
             """
             return mutate_rule(
                 rule_name=rule_name,
@@ -117,3 +120,70 @@ class AgentMemoryMCPExtension(MCPExtension):
                 "content": res["raw_content"],
                 "created_at": res["created_at"],
             }
+
+        @mcp.tool()
+        async def get_causal_subgraph(
+            query_or_entity: str,
+            bank_id: str = "hermes",
+            relationship_filter: str = "",
+            limit: int = 25,
+        ) -> Dict[str, Any]:
+            """
+            Queries the causal entity knowledge graph (causes, caused_by, enables, prevents)
+            connecting architecture components, failure modes, and system decisions.
+            Use this tool when diagnosing complex service bugs, dependency deadlocks, or outages.
+            """
+            bank = bank_id or "hermes"
+            search_pattern = f"%{query_or_entity.strip()}%"
+            rel_filter = relationship_filter.strip().lower() if relationship_filter else None
+            rel_types = [rel_filter] if rel_filter else ["causes", "caused_by", "enables", "prevents"]
+
+            query = """
+                SELECT 
+                    m1.id::text as from_id,
+                    m1.text as from_text,
+                    l.link_type,
+                    l.weight,
+                    m2.id::text as to_id,
+                    m2.text as to_text,
+                    COALESCE(e.canonical_name, '') as entity_name
+                FROM memory_links l
+                JOIN memory_units m1 ON l.from_unit_id = m1.id
+                JOIN memory_units m2 ON l.to_unit_id = m2.id
+                LEFT JOIN entities e ON l.entity_id = e.id
+                WHERE l.bank_id = $1 
+                  AND l.link_type = ANY($2)
+                  AND (m1.text ILIKE $3 OR m2.text ILIKE $3 OR e.canonical_name ILIKE $3)
+                ORDER BY l.weight DESC, l.created_at DESC
+                LIMIT $4;
+            """
+            try:
+                pool = await memory._get_pool()
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(query, bank, rel_types, search_pattern, limit)
+
+                links = []
+                for r in rows:
+                    links.append({
+                        "from_text": r["from_text"],
+                        "relationship": r["link_type"],
+                        "to_text": r["to_text"],
+                        "entity": r["entity_name"] or None,
+                        "weight": float(r["weight"]) if r["weight"] is not None else 1.0,
+                    })
+
+                return {
+                    "query": query_or_entity,
+                    "bank_id": bank,
+                    "causal_links": links,
+                    "count": len(links),
+                }
+            except Exception as exc:
+                logger.error(f"Failed to query causal subgraph: {exc}", exc_info=True)
+                return {
+                    "query": query_or_entity,
+                    "bank_id": bank,
+                    "error": str(exc),
+                    "causal_links": [],
+                    "count": 0,
+                }

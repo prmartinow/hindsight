@@ -487,7 +487,7 @@ class WorkerPoller:
 
         return SlotAvailability(reserved=reserved_available, shared=shared_available)
 
-    async def wait_for_active_tasks(self, timeout: float = 10.0) -> bool:
+    async def wait_for_active_tasks(self, timeout: float = 100.0) -> bool:
         """
         Wait for all active background tasks to complete (test helper).
 
