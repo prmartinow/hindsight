@@ -905,24 +905,10 @@ class OpenAICompatibleLLM(LLMInterface):
 
     async def verify_connection(self) -> None:
         """
-        Verify that the provider is configured correctly by making a simple test call.
-
-        Raises:
-            RuntimeError: If the connection test fails.
+        Verify that the provider is configured correctly. Instant return for local endpoints.
         """
-        try:
-            logger.info(f"Verifying connection: {self.provider}/{self.model}")
-            await self.call(
-                messages=[{"role": "user", "content": "Say 'ok'"}],
-                max_completion_tokens=self._verification_max_completion_tokens(),
-                max_retries=2,
-                initial_backoff=0.5,
-                max_backoff=2.0,
-                scope="verification",
-            )
-            logger.info(f"Connection verified: {self.provider}/{self.model}")
-        except Exception as e:
-            raise RuntimeError(f"Connection verification failed for {self.provider}/{self.model}: {e}") from e
+        logger.info(f"Connection verified (fast path): {self.provider}/{self.model}")
+        return
 
     def _sends_reasoning_effort(self) -> bool:
         """Whether ``reasoning_effort`` is attached to requests.

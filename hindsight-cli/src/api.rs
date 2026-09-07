@@ -150,9 +150,9 @@ impl ApiClient {
     pub fn new(base_url: String, api_key: Option<String>) -> Result<Self> {
         let runtime = std::sync::Arc::new(tokio::runtime::Runtime::new()?);
 
-        // Create HTTP client with 2-minute timeout and optional auth header
+        // Create HTTP client with 10-minute timeout and optional auth header
         let mut client_builder =
-            reqwest::Client::builder().timeout(std::time::Duration::from_secs(120));
+            reqwest::Client::builder().timeout(std::time::Duration::from_secs(600));
 
         client_builder = client_builder.default_headers(default_headers(api_key.as_deref())?);
 
