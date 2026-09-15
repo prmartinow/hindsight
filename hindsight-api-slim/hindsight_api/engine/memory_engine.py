@@ -1834,9 +1834,13 @@ def _operation_details(operation_type: str, result_metadata: dict[str, Any]) -> 
     if outcome is None:
         # An unfinished refresh, or one recorded before the outcome was written.
         return None
+    is_failed = isinstance(outcome, str) and outcome.startswith("refresh_failed_")
     try:
         return RefreshMentalModelOperationDetails(
-            outcome=outcome, failure_reason=result_metadata.get("failure_reason")
+            outcome=outcome,
+            failure_reason=result_metadata.get("failure_reason"),
+            content_ready=result_metadata.get("populated_content") if not is_failed else None,
+            no_sources_in_scope=(result_metadata.get("no_sources_in_scope") if not is_failed else None),
         ).model_dump(mode="json")
     except ValidationError:
         # A value this build has no name for — the shape a rolling upgrade
@@ -4339,6 +4343,7 @@ class MemoryEngine(MemoryEngineInterface):
             # Reflect's own failure stubs are gone: a run with no answer now
             # raises (#2959), so no refresh reaches here carrying one.
             populated_content=bool(stripped) and stripped != MENTAL_MODEL_PENDING_CONTENT,
+            no_sources_in_scope=reflect_response.get("reflect_skipped") == "no_sources_in_scope",
             based_on_counts={fact_type: len(facts or []) for fact_type, facts in based_on.items()},
             delta_ops_applied=len(reflect_response.get("delta_operations_applied") or []),
             delta_ops_skipped=len(reflect_response.get("delta_operations_skipped") or []),
@@ -18687,6 +18692,10 @@ class MemoryEngine(MemoryEngineInterface):
 
         node = self._row_to_knowledge_node(row)
         node["content"] = row["mm_content"]
+        # A completed refresh may preserve the initial placeholder when its scope
+        # has no sources. Timestamps are not proof that a document exists.
+        stripped_content = (node["content"] or "").strip()
+        node["content_ready"] = bool(stripped_content) and stripped_content != MENTAL_MODEL_PENDING_CONTENT
 
         if meter:
             await self._record_mental_model_read(

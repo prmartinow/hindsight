@@ -1698,6 +1698,22 @@ class TestOperationTools:
         result = await _tools(mcp)["get_operation"].fn(operation_id="op-1")
         assert '"op-1"' in result
 
+    @pytest.mark.parametrize("include_bank_id", [True, False])
+    async def test_get_operation_preserves_content_verification(self, mock_memory, include_bank_id):
+        details = {
+            "operation_type": "refresh_mental_model",
+            "outcome": "content_preserved_no_new_facts",
+            "content_ready": False,
+            "no_sources_in_scope": True,
+            "failure_reason": None,
+        }
+        mock_memory.get_operation_status.return_value = {"status": "completed", "details": details}
+        mcp = _make_mcp_server(mock_memory, {"get_operation"}, include_bank_id=include_bank_id)
+        result = await _tools(mcp)["get_operation"].fn(operation_id="op-1")
+        if include_bank_id:
+            result = json.loads(result)
+        assert result == {"status": "completed", "details": details}
+
     async def test_cancel_operation(self, mock_memory):
         mcp = _make_mcp_server(mock_memory, {"cancel_operation"}, include_bank_id=True)
         result = await _tools(mcp)["cancel_operation"].fn(operation_id="op-1")
@@ -2136,6 +2152,17 @@ class TestKnowledgeBaseTools:
         assert result["markdown"].startswith("---\n")
         assert "Run `make deploy`." in result["markdown"]
 
+    @pytest.mark.parametrize("include_bank_id", [True, False])
+    @pytest.mark.parametrize("ready", [True, False])
+    async def test_get_page_exposes_content_readiness(self, mock_memory, include_bank_id, ready):
+        mock_memory.get_knowledge_page.return_value["content_ready"] = ready
+        mcp = _make_mcp_server(mock_memory, {"get_knowledge_page"}, include_bank_id=include_bank_id)
+        result = await _tools(mcp)["get_knowledge_page"].fn(page_id="kp-1")
+        if include_bank_id:
+            result = json.loads(result)
+        assert result["content_ready"] is ready
+        assert "markdown" in result
+
     async def test_get_page_not_found(self, mock_memory):
         mock_memory.get_knowledge_page.return_value = None
         mcp = _make_mcp_server(mock_memory, {"get_knowledge_page"}, include_bank_id=True)
@@ -2155,11 +2182,18 @@ class TestKnowledgeBaseTools:
         result = await _tools(mcp)["create_knowledge_folder"].fn(name="Runbooks", parent_id="kf-x")
         assert "not found" in result
 
-    async def test_create_page_schedules_refresh(self, mock_memory):
-        mcp = _make_mcp_server(mock_memory, {"create_knowledge_page"}, include_bank_id=True)
-        result = json.loads(
-            await _tools(mcp)["create_knowledge_page"].fn(name="Deploys", source_query="How is it deployed?")
-        )
+    @pytest.mark.parametrize("include_bank_id", [True, False])
+    async def test_create_page_schedules_refresh(self, mock_memory, include_bank_id):
+        mcp = _make_mcp_server(mock_memory, {"create_knowledge_page"}, include_bank_id=include_bank_id)
+        tool = _tools(mcp)["create_knowledge_page"]
+        result = await tool.fn(name="Deploys", source_query="How is it deployed?")
+        if include_bank_id:
+            result = json.loads(result)
+        assert "Poll get_operation" in result["message"]
+        assert "get_knowledge_page" in result["message"]
+        assert "Completed status alone does not mean content is ready" in result["message"]
+        assert "poll get_operation" in tool.description
+        assert "details.content_ready" in tool.description
         assert result["page_id"] == "kp-1"
         assert result["operation_id"] == "op-123"
         create_kwargs = mock_memory.create_knowledge_page.call_args.kwargs
