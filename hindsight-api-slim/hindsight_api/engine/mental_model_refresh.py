@@ -124,6 +124,23 @@ class RefreshMentalModelOperationDetails(BaseModel):
         ),
     )
 
+    content_ready: bool | None = Field(
+        default=None,
+        description=(
+            "Whether nonempty, non-placeholder content existed at the end of this refresh. "
+            "True can describe preserved content, not necessarily newly generated content; "
+            "it does not assert freshness or grounding. Null when not recorded."
+        ),
+    )
+    no_sources_in_scope: bool | None = Field(
+        default=None,
+        description=(
+            "Whether this refresh skipped reflect because no readable sources existed in its "
+            "resolved scope/time window. A completed operation can have this true and "
+            "content_ready false. Null on older records and failed attempts."
+        ),
+    )
+
 
 class MentalModelRefreshScope(BaseModel):
     """The memory scope a refresh actually resolved to.

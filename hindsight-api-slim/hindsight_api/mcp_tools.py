@@ -2510,6 +2510,7 @@ async def _do_get_knowledge_page(
         "tags": page.display_tags,
         "timestamp": node.get("last_refreshed_at") or node.get("created_at"),
         "markdown": page_markdown.render_document(node, notice_when_empty=True),
+        "content_ready": node.get("content_ready"),
     }
 
 
@@ -2561,7 +2562,12 @@ async def _do_create_knowledge_page(
         "mental_model_id": node["mental_model_id"],
         "operation_id": result["operation_id"],
         "status": "created",
-        "message": f"Page '{name}' created. Content is being generated asynchronously.",
+        "message": (
+            f"Page '{name}' created; content generation was queued. "
+            "Poll get_operation with operation_id, then read get_knowledge_page with page_id. "
+            "Completed status alone does not mean content is ready: check details.content_ready "
+            "and details.no_sources_in_scope, and verify the page content_ready and markdown."
+        ),
     }
 
 
@@ -2774,6 +2780,8 @@ def _register_get_knowledge_page(mcp: FastMCP, memory: MemoryEngine, config: MCP
             Returns the page's YAML frontmatter (id, type, title, description,
             tags, timestamp) followed by its synthesized markdown body. Discover
             page ids with get_knowledge_base_tree or search_knowledge_base.
+            content_ready reports whether the current body is nonempty and not the generation
+            placeholder; it does not certify freshness or grounding.
 
             Args:
                 page_id: The ID of the page to read (a `kp-...` node id)
@@ -2799,6 +2807,8 @@ def _register_get_knowledge_page(mcp: FastMCP, memory: MemoryEngine, config: MCP
             Returns the page's YAML frontmatter (id, type, title, description,
             tags, timestamp) followed by its synthesized markdown body. Discover
             page ids with get_knowledge_base_tree or search_knowledge_base.
+            content_ready reports whether the current body is nonempty and not the generation
+            placeholder; it does not certify freshness or grounding.
 
             Args:
                 page_id: The ID of the page to read (a `kp-...` node id)
@@ -2916,8 +2926,10 @@ def _register_create_knowledge_page(mcp: FastMCP, memory: MemoryEngine, config: 
             Create a knowledge page — a living document answering a question.
 
             The page's content is synthesized from the bank's memories by running
-            source_query, asynchronously: use the returned operation_id to track
-            completion, then read it with get_knowledge_page. By default the page
+            source_query, asynchronously: poll get_operation with the returned operation_id,
+            then read get_knowledge_page with page_id. Completed status does not prove content
+            exists: check details.content_ready and details.no_sources_in_scope, then verify
+            the page content_ready and markdown. By default the page
             keeps itself current, rebuilding after each consolidation.
 
             EXAMPLES:
@@ -2967,8 +2979,10 @@ def _register_create_knowledge_page(mcp: FastMCP, memory: MemoryEngine, config: 
             Create a knowledge page — a living document answering a question.
 
             The page's content is synthesized from the bank's memories by running
-            source_query, asynchronously: use the returned operation_id to track
-            completion, then read it with get_knowledge_page. By default the page
+            source_query, asynchronously: poll get_operation with the returned operation_id,
+            then read get_knowledge_page with page_id. Completed status does not prove content
+            exists: check details.content_ready and details.no_sources_in_scope, then verify
+            the page content_ready and markdown. By default the page
             keeps itself current, rebuilding after each consolidation.
 
             EXAMPLES:
@@ -4068,6 +4082,8 @@ def _register_get_operation(mcp: FastMCP, memory: MemoryEngine, config: MCPTools
             Get the status of an async operation.
 
             Check progress of background tasks like retain processing or mental model refresh.
+            A completed refresh is not proof of generated content: check details.content_ready
+            and details.no_sources_in_scope, then read the page to verify its current content.
 
             Args:
                 operation_id: The ID of the operation to check
@@ -4091,6 +4107,8 @@ def _register_get_operation(mcp: FastMCP, memory: MemoryEngine, config: MCPTools
             Get the status of an async operation.
 
             Check progress of background tasks like retain processing or mental model refresh.
+            A completed refresh is not proof of generated content: check details.content_ready
+            and details.no_sources_in_scope, then read the page to verify its current content.
 
             Args:
                 operation_id: The ID of the operation to check
