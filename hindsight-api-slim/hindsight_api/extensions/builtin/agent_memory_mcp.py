@@ -139,7 +139,7 @@ class AgentMemoryMCPExtension(MCPExtension):
             rel_types = [rel_filter] if rel_filter else ["causes", "caused_by", "enables", "prevents"]
 
             query = """
-                SELECT 
+                SELECT
                     m1.id::text as from_id,
                     m1.text as from_text,
                     l.link_type,
@@ -151,7 +151,7 @@ class AgentMemoryMCPExtension(MCPExtension):
                 JOIN memory_units m1 ON l.from_unit_id = m1.id
                 JOIN memory_units m2 ON l.to_unit_id = m2.id
                 LEFT JOIN entities e ON l.entity_id = e.id
-                WHERE l.bank_id = $1 
+                WHERE l.bank_id = $1
                   AND l.link_type = ANY($2)
                   AND (m1.text ILIKE $3 OR m2.text ILIKE $3 OR e.canonical_name ILIKE $3)
                 ORDER BY l.weight DESC, l.created_at DESC
