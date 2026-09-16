@@ -192,6 +192,9 @@ class RefreshMentalModelOutcomeMetadata:
     # Why the refresh refused to write, on the failing outcomes only. Finer than
     # ``outcome``: it is the same value persisted as ``reflect_response.refresh_skipped``.
     failure_reason: "RefreshFailureReason | None" = None
+    # This attempt skipped reflect due to an empty resolved scope/time window.
+    # Independent of readiness: existing content can be preserved.
+    no_sources_in_scope: bool | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for JSON serialization, omitting an unrecorded outcome.

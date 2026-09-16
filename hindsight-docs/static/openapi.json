@@ -16434,6 +16434,30 @@
             ],
             "title": "Failure Reason",
             "description": "Why the refresh refused to write, finer-grained than the outcome \u2014 it distinguishes an op call that failed from one whose operations were all rejected, and from a baseline document that could not be read. Null unless `outcome` is one of the `refresh_failed_*` values."
+          },
+          "content_ready": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Ready",
+            "description": "Whether nonempty, non-placeholder content existed at the end of this refresh. True can describe preserved content, not necessarily newly generated content; it does not assert freshness or grounding. Null when not recorded."
+          },
+          "no_sources_in_scope": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "No Sources In Scope",
+            "description": "Whether this refresh skipped reflect because no readable sources existed in its resolved scope/time window. A completed operation can have this true and content_ready false. Null on older records and failed attempts."
           }
         },
         "type": "object",
