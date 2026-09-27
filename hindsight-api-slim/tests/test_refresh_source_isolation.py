@@ -42,6 +42,7 @@ async def test_unbounded_refresh_never_reads_or_synthesizes(tags, trigger):
     with pytest.raises(MentalModelRefreshError) as raised:
         await engine._execute_mental_model_refresh("test", model, request_context=None)
     assert raised.value.reason == "unscoped_sources"
+    assert isinstance(raised.value, ValueError)  # HTTP maps invalid configuration to 400.
     assert model["content"] == "previous accepted body"
     engine._get_backend.assert_not_called()
     engine.reflect_async.assert_not_called()
