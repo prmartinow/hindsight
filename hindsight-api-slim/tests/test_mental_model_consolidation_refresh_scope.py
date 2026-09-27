@@ -103,9 +103,7 @@ async def test_tagged_strict_model_skipped_when_only_untagged_consolidated(
 async def test_tagged_non_strict_model_skipped_when_only_untagged_consolidated(
     memory: MemoryEngine, request_context, monkeypatch
 ):
-    """A tagged model with tags_match="any" reads untagged memories on refresh, but an
-    untagged write does not make it stale (#4857), so an untagged-only consolidation
-    does not refresh it."""
+    """Knowledge refresh strengthens non-strict filters: untagged facts are out of scope."""
     bank = await _make_bank(memory, request_context)
     async with memory._pool.acquire() as conn:
         mm_id = await _insert_mm(conn, bank, tags=["alpha"], trigger_extra={"tags_match": "any"})
@@ -124,9 +122,7 @@ async def test_tagged_non_strict_model_skipped_when_only_untagged_consolidated(
 async def test_tag_groups_model_skipped_when_only_untagged_consolidated(
     memory: MemoryEngine, request_context, monkeypatch
 ):
-    """trigger.tag_groups overrides the tags column entirely; a leaf's non-strict mode
-    lets the refresh read untagged memories, but an untagged write alone does not make
-    the model stale (#4857)."""
+    """Tag groups override flat tags but cannot admit untagged evidence during refresh."""
     bank = await _make_bank(memory, request_context)
     async with memory._pool.acquire() as conn:
         mm_id = await _insert_mm(

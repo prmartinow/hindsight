@@ -286,8 +286,7 @@ async def test_mental_models_are_confined(memory, scoped_bank):
         )
     assert refused.value.status_code == 403
 
-    # A model he can see stores his scope in its refresh filter: tagged `kind:rule` and matched
-    # loosely ("any" also admits untagged memories), it still never reads past `user:dan`/`kind:rule`.
+    # Store Dan's scope and require tagged evidence matching the model's own filter.
     shared = await memory.create_mental_model(
         scoped_bank,
         "Rules digest",
@@ -298,7 +297,7 @@ async def test_mental_models_are_confined(memory, scoped_bank):
         request_context=dan,
     )
     assert _resolve_refresh_tag_filtering(shared["tags"], shared["trigger"]).tag_groups == [
-        TagGroupLeaf(tags=["kind:rule"], match="any"),
+        TagGroupLeaf(tags=["kind:rule"], match="any_strict"),
         *DAN_SCOPE,
     ]
 
