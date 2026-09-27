@@ -624,6 +624,10 @@ class MentalModelRefreshError(Exception):
         self.retryable = retryable
 
 
+class UnscopedRefreshError(MentalModelRefreshError, ValueError):
+    """Invalid source configuration: report HTTP 400 while retaining typed job details."""
+
+
 def validate_sql_schema(sql: str) -> None:
     """
     Validate that SQL doesn't contain unqualified table references.
@@ -18766,7 +18770,7 @@ class MemoryEngine(MemoryEngineInterface):
         model_tags: list[str] | None = mental_model.get("tags")
         tag_filtering = _resolve_refresh_tag_filtering(model_tags, trigger_data)
         if not tag_filtering.is_scoped:
-            raise MentalModelRefreshError(
+            raise UnscopedRefreshError(
                 "Knowledge refresh requires a nonempty positive exact source scope; "
                 "set repository/topic tags or bounded tag_groups. Previous content is preserved.",
                 outcome="refresh_failed_error",
