@@ -98,11 +98,10 @@ async def test_tagged_strict_model_skipped_when_only_untagged_consolidated(
 
 @pytest.mark.asyncio
 @pytest.mark.memory_backend_incompatible
-async def test_tagged_non_strict_model_refreshed_when_only_untagged_consolidated(
+async def test_tagged_non_strict_model_skipped_when_only_untagged_consolidated(
     memory: MemoryEngine, request_context, monkeypatch
 ):
-    """A tagged model with tags_match="any" IS refreshed by an untagged-only
-    consolidation: non-strict matching puts untagged memories in its scope (#3053)."""
+    """Knowledge refresh strengthens non-strict filters: untagged facts are out of scope."""
     bank = await _make_bank(memory, request_context)
     async with memory._pool.acquire() as conn:
         mm_id = await _insert_mm(conn, bank, tags=["alpha"], trigger_extra={"tags_match": "any"})
@@ -113,16 +112,15 @@ async def test_tagged_non_strict_model_refreshed_when_only_untagged_consolidated
         memory_engine=memory, bank_id=bank, request_context=request_context, consolidated_tags=None
     )
 
-    assert mm_id in submitted
+    assert mm_id not in submitted
 
 
 @pytest.mark.asyncio
 @pytest.mark.memory_backend_incompatible
-async def test_tag_groups_model_refreshed_when_only_untagged_consolidated(
+async def test_tag_groups_model_skipped_when_only_untagged_consolidated(
     memory: MemoryEngine, request_context, monkeypatch
 ):
-    """trigger.tag_groups overrides the tags column entirely, so a model carrying
-    tags can still have untagged memories in scope and must stay a candidate."""
+    """Tag groups override flat tags but cannot admit untagged evidence during refresh."""
     bank = await _make_bank(memory, request_context)
     async with memory._pool.acquire() as conn:
         mm_id = await _insert_mm(
@@ -138,7 +136,7 @@ async def test_tag_groups_model_refreshed_when_only_untagged_consolidated(
         memory_engine=memory, bank_id=bank, request_context=request_context, consolidated_tags=None
     )
 
-    assert mm_id in submitted
+    assert mm_id not in submitted
 
 
 @pytest.mark.asyncio

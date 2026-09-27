@@ -84,6 +84,7 @@ RefreshFailureReason = Literal[
     "delta_not_applied",
     "structured_output_failed",
     "retrieval_failed",
+    "unscoped_sources",
     "no_answer",
     "unexpected_error",
 ]

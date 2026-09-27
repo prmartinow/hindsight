@@ -1711,6 +1711,7 @@ class RefreshTagFiltering:
     tags: list[str] | None
     tags_match: TagsMatch
     tag_groups: list[TagGroup] | None
+    is_scoped: bool = True
 
 
 @dataclass(frozen=True)
@@ -1758,17 +1759,24 @@ def _resolve_refresh_tag_filtering(
     - If trigger has tags_match, use model's tags with that match mode
     - Otherwise default to all_strict when tags present (security isolation)
     """
+    from .refresh_scope import strict_group, strict_match
+
     trigger_tag_groups = trigger_data.get("tag_groups")
     if trigger_tag_groups is not None:
         from pydantic import TypeAdapter
 
         adapter = TypeAdapter(TagGroup)
-        parsed = [adapter.validate_python(tg) for tg in trigger_tag_groups]
-        return RefreshTagFiltering(tags=None, tags_match="any", tag_groups=parsed)
+        resolved = [strict_group(adapter.validate_python(tg)) for tg in trigger_tag_groups]
+        # Top-level groups are AND-ed. Every branch must be valid, and at least
+        # one top-level expression must positively bound the resulting sources.
+        scoped = bool(resolved) and all(item[2] for item in resolved) and any(item[1] for item in resolved)
+        return RefreshTagFiltering(
+            tags=None, tags_match="all_strict", tag_groups=[item[0] for item in resolved], is_scoped=scoped
+        )
 
-    trigger_tags_match = trigger_data.get("tags_match")
-    tags_match: TagsMatch = trigger_tags_match if trigger_tags_match else ("all_strict" if model_tags else "any")
-    return RefreshTagFiltering(tags=model_tags, tags_match=tags_match, tag_groups=None)
+    tags_match: TagsMatch = strict_match(trigger_data.get("tags_match") or "all_strict")
+    scoped = bool(model_tags) and all(tag.strip() for tag in model_tags)
+    return RefreshTagFiltering(tags=model_tags, tags_match=tags_match, tag_groups=None, is_scoped=scoped)
 
 
 def _knowledge_tree_sort_key(row: Any) -> tuple[bool, int, str]:
@@ -17691,10 +17699,20 @@ class MemoryEngine(MemoryEngineInterface):
 
         trigger_data: dict[str, Any] = dict(mental_model.get("trigger") or {})
         model_tags: list[str] | None = mental_model.get("tags")
+        tag_filtering = _resolve_refresh_tag_filtering(model_tags, trigger_data)
+        if not tag_filtering.is_scoped:
+            raise MentalModelRefreshError(
+                "Knowledge refresh requires a nonempty positive exact source scope; "
+                "set repository/topic tags or bounded tag_groups. Previous content is preserved.",
+                outcome="refresh_failed_error",
+                reason="unscoped_sources",
+            )
 
         # Read reflect options from trigger (if stored)
         fact_types = trigger_data.get("fact_types")
-        exclude_mental_models = bool(trigger_data.get("exclude_mental_models", False))
+        # Generated sibling pages are not primary evidence and can carry the same
+        # contamination. Refresh only from the explicitly bounded memory sources.
+        exclude_mental_models = True
         stored_exclude_ids: list[str] = trigger_data.get("exclude_mental_model_ids") or []
         recall_include_chunks_override = trigger_data.get("include_chunks")
         recall_max_tokens_override = trigger_data.get("recall_max_tokens")
@@ -17759,7 +17777,6 @@ class MemoryEngine(MemoryEngineInterface):
                 else:
                     stored_structured_content = raw_struct
 
-        tag_filtering = _resolve_refresh_tag_filtering(model_tags, trigger_data)
         exclude_ids = sorted({*stored_exclude_ids, mental_model_id})
         scope = MentalModelRefreshScope(
             tags=tag_filtering.tags,

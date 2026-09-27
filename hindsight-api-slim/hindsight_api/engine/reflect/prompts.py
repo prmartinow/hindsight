@@ -1134,10 +1134,18 @@ RULES
 - These facts are NEW since the last refresh. The existing document already
   captures all prior information from earlier refreshes. Your job is to
   integrate the new facts into the existing document.
-- **Preserve existing content**: The current document was built from prior facts
-  that you cannot see. Do NOT remove or replace existing sections just because
-  the new facts do not reference them. Only remove content when the new facts
-  explicitly contradict or supersede it.
+- **Off-topic removal overrides preservation (Prompt Precedence)**:
+  Content that does not directly answer or help answer the TOPIC is OFF-TOPIC.
+  Removing off-topic content strictly overrides the rule to preserve existing content.
+  Use `remove_block` or `remove_section` to eliminate off-topic or contaminated sections,
+  even if no new supporting fact mentions or refutes them.
+- **Preserve existing on-topic content**: The current document was built from prior facts
+  that you cannot see. For content that is relevant to the TOPIC, do NOT remove or replace
+  existing sections just because the new facts do not reference them. Only remove on-topic
+  content when new facts explicitly contradict or supersede it.
+- **Preserve body on no relevant scoped facts**: If SUPPORTING FACTS contain no relevant
+  new facts for the TOPIC, preserve the on-topic document body unchanged (emit
+  `{"operations": []}`). Do not invent edits or wipe valid content when new scoped facts are absent.
 - **Merge overlapping topics**: When new facts cover topics that overlap with
   existing sections, merge the new information INTO the existing section
   rather than creating duplicates. When new facts provide more specific or
@@ -1165,19 +1173,20 @@ RULES
   and only the second would justify an edit. This applies to the SYNTHESIS too: if
   it reports that something is absent, unrecorded or not found, that is a
   statement about the batch, never about the topic.
-- **Refutation threshold for removal or overwrite**: you may only remove or
-  overwrite existing text when a SUPPORTING FACT explicitly refutes or corrects
-  that exact detail, OR is a later-DATED statement about the same facet (a
-  status, count, owner or location that has since changed). "Later" is about
-  the dates the texts give, never about arrival: facts reach you out of date
-  order, and a fact dated before the state the document records is backfilled
-  history — it belongs in the history, not in place of the current state, even
-  when the synthesis calls it current. Failing both tests, keep the
-  existing text: use ``append_block`` / ``insert_block``, or re-emit the block
-  with the new detail merged into a cohesive statement that still carries the old
+- **Refutation and removal threshold**: you may remove or overwrite existing
+  text when:
+  (1) it is OFF-TOPIC to the TOPIC (off-topic removal strictly overrides preservation), OR
+  (2) a SUPPORTING FACT explicitly refutes or corrects that exact detail, OR
+  (3) a SUPPORTING FACT is a later-DATED statement about the same facet (a status, count,
+  owner or location that has since changed). "Later" is about the dates the texts give,
+  never about arrival: facts reach you out of date order, and a fact dated before the
+  state the document records is backfilled history — it belongs in the history, not
+  in place of the current state, even when the synthesis calls it current.
+  Failing these tests, keep the existing on-topic text: use ``append_block`` / ``insert_block``,
+  or re-emit the block with the new detail merged into a cohesive statement that still carries the old
   one. Combining two disjoint sets is a merge, never a replacement.
-- **Remove** content with ``remove_block`` or ``remove_section`` ONLY when
-  the new facts explicitly contradict or supersede it.
+- **Remove** content with ``remove_block`` or ``remove_section`` when the content is
+  OFF-TOPIC, or when the new facts explicitly contradict or supersede it.
 - Prefer the *smallest* operation that expresses the change: appending or
   replacing one block leaves every other block byte-identical, while
   ``replace_section_blocks`` makes you retype the whole section and risks
@@ -1634,14 +1643,15 @@ You will be given:
 Your task: produce an updated version of the CURRENT DOCUMENT that reflects the new reality, with the MINIMUM possible changes.
 
 ABSOLUTE RULES:
-- Preserve unchanged content BYTE-FOR-BYTE. If a sentence, heading, bullet, code block, or section is still accurate according to the CANDIDATE UPDATE and SUPPORTING FACTS, copy it verbatim — same wording, same punctuation, same whitespace, same markdown structure.
+- Off-topic removal overrides preservation (Prompt Precedence): remove content that is OFF-TOPIC to the topic query or contradicted by the CANDIDATE UPDATE or SUPPORTING FACTS. Off-topic removal strictly overrides byte-for-byte preservation.
+- Preserve unchanged on-topic content BYTE-FOR-BYTE. If a sentence, heading, bullet, code block, or section is still accurate and relevant according to the CANDIDATE UPDATE and SUPPORTING FACTS, copy it verbatim — same wording, same punctuation, same whitespace, same markdown structure.
 - Do NOT reformat, rephrase, or re-style content that is still accurate. No "light edits for clarity", no reordering for flow, no synonym swaps.
-- Remove content that is contradicted by the CANDIDATE UPDATE or SUPPORTING FACTS (stale content).
+- Remove content that is off-topic, or contradicted by the CANDIDATE UPDATE or SUPPORTING FACTS (stale content).
 - Add new content ONLY when the SUPPORTING FACTS contain information not already in the CURRENT DOCUMENT.
 - When adding new content, prefer appending to an existing relevant section. Creating a new section is acceptable when the new information does not fit any existing section.
 - When creating a new section, match the heading style, tone, and formatting conventions used in the CURRENT DOCUMENT.
 - Every assertion in your output MUST be grounded in either (a) the CURRENT DOCUMENT (preserved) or (b) the SUPPORTING FACTS. Never introduce outside knowledge.
-- If nothing in the SUPPORTING FACTS contradicts or extends the CURRENT DOCUMENT, return the CURRENT DOCUMENT UNCHANGED, character for character.
+- If nothing in the SUPPORTING FACTS contradicts or extends the CURRENT DOCUMENT, and the CURRENT DOCUMENT contains no off-topic content, return the CURRENT DOCUMENT UNCHANGED, character for character. Preserve the document body when there are no relevant scoped facts.
 
 OUTPUT FORMAT:
 - Output ONLY the updated markdown document. No preamble, no explanation, no diff markers, no commentary.
