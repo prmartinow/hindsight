@@ -110,3 +110,12 @@ def test_the_list_covers_every_operations_prompt():
         and name not in _OPERATION_PROMPTS
     ]
     assert not unlisted, f"these prompts ask for operations but are not checked: {unlisted}"
+
+
+def test_delta_prompt_retains_off_topic_removal_and_dated_backfill_distinction():
+    """STRUCTURED_DELTA_SYSTEM_PROMPT must retain off-topic removal priority and upstream later-DATED backfill/arrival distinction."""
+    prompt = prompts.STRUCTURED_DELTA_SYSTEM_PROMPT
+    assert "Off-topic removal overrides preservation" in prompt
+    assert "later-DATED" in prompt
+    assert "backfilled history" in prompt
+    assert "never about arrival" in prompt

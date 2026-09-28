@@ -1,10 +1,9 @@
 """Tests for which mental models a consolidation run triggers a refresh for.
 
 ``_trigger_mental_model_refreshes`` prefilters candidates in SQL and then gates each
-one on ``compute_mental_model_is_stale``. The prefilter must key off the model's
-*resolved* refresh scope (``_resolve_refresh_tag_filtering``), not its ``tags``
-column: ``tags_match`` "any"/"all" and ``trigger.tag_groups`` both let a tagged model
-see untagged memories, and gating on the column starved them (#3053).
+one on ``compute_mental_model_is_stale``. Refresh requires a strict, bounded source
+scope, so untagged memories cannot trigger refreshes, and models without matching
+tags are skipped.
 
 Deterministic — no LLM, no consolidation run: the trigger function is called directly
 and refresh submission is monkeypatched.
@@ -176,12 +175,12 @@ async def test_tagged_model_refreshed_when_its_tag_was_consolidated(memory: Memo
 
 @pytest.mark.asyncio
 @pytest.mark.memory_backend_incompatible
-async def test_non_strict_model_refreshed_on_mixed_run_with_foreign_tags(
+async def test_non_strict_model_skipped_on_mixed_run_with_foreign_tags(
     memory: MemoryEngine, request_context, monkeypatch
 ):
     """A run that consolidates both untagged and foreign-tagged memories reports only
-    the foreign tags. A non-strict model whose tags do not overlap them is still
-    reached by the untagged half, so the overlap branch must widen the same way."""
+    the foreign tags. Under strict scope enforcement, untagged memories are out of
+    scope, so a non-strict model whose tags do not overlap them is not refreshed."""
     bank = await _make_bank(memory, request_context)
     async with memory._pool.acquire() as conn:
         strict_mm = await _insert_mm(conn, bank, tags=["alpha"])
@@ -193,5 +192,5 @@ async def test_non_strict_model_refreshed_on_mixed_run_with_foreign_tags(
         memory_engine=memory, bank_id=bank, request_context=request_context, consolidated_tags=["beta"]
     )
 
-    assert loose_mm in submitted
+    assert loose_mm not in submitted
     assert strict_mm not in submitted
