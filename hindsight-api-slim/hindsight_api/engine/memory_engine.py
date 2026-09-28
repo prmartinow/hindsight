@@ -627,6 +627,9 @@ class MentalModelRefreshError(Exception):
 class UnscopedRefreshError(MentalModelRefreshError, ValueError):
     """Invalid source configuration: report HTTP 400 while retaining typed job details."""
 
+    def __init__(self, message: str, *, outcome: "RefreshOperationOutcome", reason: "RefreshFailureReason") -> None:
+        super().__init__(message, outcome=outcome, reason=reason, retryable=False)
+
 
 def validate_sql_schema(sql: str) -> None:
     """
