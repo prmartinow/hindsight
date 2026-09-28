@@ -615,6 +615,7 @@ _OUTCOME_CASES = [
         tags=[],
         expect_outcome="refresh_failed_error",
         expect_failure_reason="unscoped_sources",
+        expect_retry=False,
         why="refresh requires a nonempty positive exact source scope; unscoped models are rejected",
     ),
     _OutcomeCase(
