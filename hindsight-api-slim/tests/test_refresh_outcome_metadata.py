@@ -634,7 +634,12 @@ async def test_refresh_outcome_matrix(case: _OutcomeCase, memory: MemoryEngine, 
     submit = memory.submit_async_refresh_mental_model(
         bank_id=bank_id, mental_model_id=mm["id"], request_context=request_context
     )
-    if case.expect_outcome.startswith("refresh_failed"):
+    if case.id == "unscoped_sources":
+        # Unscoped refresh is a deterministic configuration error: execute_task
+        # marks it terminal failed immediately without RetryTaskAt.
+        await submit
+        await asyncio.sleep(0.1)
+    elif case.expect_outcome.startswith("refresh_failed"):
         # A failed refresh is retryable, so the task layer re-raises it as
         # RetryTaskAt. The metadata is written before that, on the attempt that
         # failed — which is the whole point of recording it there.
@@ -645,6 +650,8 @@ async def test_refresh_outcome_matrix(case: _OutcomeCase, memory: MemoryEngine, 
         await asyncio.sleep(0.1)
 
     views = await _refresh_operation_views(memory, bank_id, request_context)
+    if case.id == "unscoped_sources":
+        assert views.status["status"] == "failed"
     details = views.status_model.details
     assert details is not None, f"{case.id}: no details recorded ({case.why})"
     assert details.outcome == case.expect_outcome, f"{case.id}: {case.why}"

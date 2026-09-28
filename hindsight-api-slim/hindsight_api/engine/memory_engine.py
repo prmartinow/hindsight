@@ -1547,6 +1547,12 @@ def _is_non_retryable_task_error(e: Exception) -> bool:
         # the moment: re-running the task feeds the same chunk to the same model
         # and earns the same refusal (issue #3690).
         or isinstance(e, ProviderContentPolicyError)
+        # An unscoped refresh is a deterministic configuration error (missing
+        # source scope): re-running the task feeds the same model without
+        # tags/tag_groups and raises the identical UnscopedRefreshError.
+        # Other MentalModelRefreshError failures (transient tool failures,
+        # rate limits) must remain retryable.
+        or isinstance(e, UnscopedRefreshError)
     )
 
 
