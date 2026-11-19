@@ -242,6 +242,14 @@ def _is_unwritten_body(content: str | None) -> bool:
     return not content or content.strip() in ("", _LEGACY_PENDING_PLACEHOLDER)
 
 
+def _has_usable_page_content(content: str | None) -> bool:
+    if _is_unwritten_body(content):
+        return False
+    # Older refreshes could store this standalone fallback as the full body.
+    normalized = (content or "").strip().casefold().replace("’", "'")
+    return normalized not in {"i don't have information", "i don't have information."}
+
+
 #: Characters of page body a page search hit shows.
 PAGE_SNIPPET_CHARS = 280
 
@@ -6052,18 +6060,12 @@ class MemoryEngine(MemoryEngineInterface):
             return
 
         content = refreshed.get("content") or ""
-        stripped = content.strip()
         reflect_response = refreshed.get("reflect_response") or {}
         based_on = reflect_response.get("based_on") or {}
         outcome = RefreshMentalModelOutcomeMetadata(
             content_len=len(content),
-            # Whitespace-only is not synthesis, and neither is the legacy placeholder
-            # an upgraded bank may still be holding: a skipped refresh preserves that
-            # body, and a length check alone would report it as populated — which is
-            # what this field exists to tell apart. Reflect's own failure stubs are
-            # gone: a run with no answer now raises (#2959), so no refresh reaches
-            # here carrying one.
-            populated_content=bool(stripped) and stripped != _LEGACY_PENDING_PLACEHOLDER,
+            # A skipped refresh may leave a legacy placeholder or no-answer body.
+            populated_content=_has_usable_page_content(content),
             no_sources_in_scope=reflect_response.get("reflect_skipped") == "no_sources_in_scope",
             based_on_counts={fact_type: len(facts or []) for fact_type, facts in based_on.items()},
             delta_ops_applied=len(reflect_response.get("delta_operations_applied") or []),
@@ -18830,7 +18832,7 @@ class MemoryEngine(MemoryEngineInterface):
         # (refresh_failed_delta_not_applied) and preserve the placeholder, leaving the
         # page stuck on it forever. Cheaper than a migration; delete once no bank can
         # still hold one.
-        has_delta_baseline = bool(current_content) and current_content != _LEGACY_PENDING_PLACEHOLDER
+        has_delta_baseline = _has_usable_page_content(current_content)
         if requested_mode == "delta" and not has_delta_baseline:
             mode_fallback_reason = "no_baseline_content"
         elif requested_mode == "delta":
@@ -19550,7 +19552,7 @@ class MemoryEngine(MemoryEngineInterface):
                 outcome="content_preserved_no_new_facts",
             )
 
-        # Refuse to overwrite existing content with an empty render.
+        # Refuse to overwrite existing content with an empty render or a no-answer stub.
         # The reflect agent can return an empty answer (small models, all
         # tool-call retries failing, transient provider errors, the cleaner
         # regex eating a JSON-dump that the LLM put in the answer field).
@@ -19560,7 +19562,7 @@ class MemoryEngine(MemoryEngineInterface):
         # existing content and raises, rather than persisting the empty render.
         # A gated delta has no reflect candidate at all, so its empty text says nothing
         # about the LLM: a failed edit there is reported by the delta guard below.
-        if not final_content.strip() and gate is None:
+        if (gate is None or delta_applied) and not _has_usable_page_content(final_content):
             warnings.append(
                 "The refresh produced empty content, which usually means an upstream LLM failure. "
                 "A real refresh would preserve the existing content and fail."
@@ -21185,8 +21187,7 @@ class MemoryEngine(MemoryEngineInterface):
         node["content"] = row["mm_content"]
         # A completed refresh may preserve the initial placeholder when its scope
         # has no sources. Timestamps are not proof that a document exists.
-        stripped_content = (node["content"] or "").strip()
-        node["content_ready"] = bool(stripped_content) and stripped_content != _LEGACY_PENDING_PLACEHOLDER
+        node["content_ready"] = _has_usable_page_content(node["content"])
 
         if meter:
             await self._record_mental_model_read(
