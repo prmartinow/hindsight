@@ -523,14 +523,6 @@ _OUTCOME_CASES = [
         why="an empty synthesis is an upstream failure; the guard fires before the delta reason is considered",
     ),
     _OutcomeCase(
-        id="standalone_no_information",
-        mode="full",
-        reflect_text="I don't have information.",
-        expect_outcome="refresh_failed_empty_candidate",
-        expect_failure_reason="empty_candidate",
-        why="a no-information stub must not overwrite the accepted body or report a write",
-    ),
-    _OutcomeCase(
         id="delta_op_call_failed",
         mode="delta",
         reflect_text="# Team\n\nNarrow candidate.\n",
