@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from agent.memory_provider import MemoryProvider, RecallStatus, spawn_context_thread
-from agent.secret_scope import UnscopedSecretError, get_secret
+from agent.secret_scope import UnscopedSecretError, get_secret, serves_routed_profile
 from hermes_cli.config import cfg_get
 from hermes_constants import get_hermes_home
 from hermes_time import now as _hermes_now
@@ -425,7 +425,10 @@ def _bank_not_written_yet(exc: Exception) -> bool:
 def _load_config() -> dict:
     """$HERMES_HOME/hindsight/config.json (profile-scoped), else ~/.hindsight/config.json
     (legacy, shared), else environment variables."""
-    for path in (get_hermes_home() / "hindsight" / "config.json", Path.home() / ".hindsight" / "config.json"):
+    paths = [get_hermes_home() / "hindsight" / "config.json"]
+    if not serves_routed_profile():
+        paths.append(Path.home() / ".hindsight" / "config.json")
+    for path in paths:
         # A corrupt (or empty) file falls through to the next source, as before the dedup.
         if path.exists() and (data := read_json_or_empty(path)):
             return data
@@ -1625,6 +1628,7 @@ class HindsightMemoryProvider(MemoryProvider):
             self._recall_types = [t.strip() for t in configured_types.split(",") if t.strip()]
         else:
             self._recall_types = list([] if configured_types is None else configured_types) or ["observation"]
+        self._prefer_observations = cfg.get("prefer_observations")
         self._recall_min_scores = _normalize_min_scores(cfg.get("recall_min_scores"))
         self._recall_prompt_preamble = cfg.get("recall_prompt_preamble", "")
         self._recall_indicator = bool(cfg.get("recall_indicator", True))
@@ -1752,6 +1756,8 @@ class HindsightMemoryProvider(MemoryProvider):
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
+        if isinstance(self._prefer_observations, bool):
+            kwargs["prefer_observations"] = self._prefer_observations
         if self._recall_min_scores:
             kwargs["min_scores"] = self._recall_min_scores
 

@@ -1,6 +1,8 @@
 """Settings a profile can give through its environment (``.env``) when it has no
 ``hindsight/config.json``: the retain label, both status-line indicators and synchronous recall."""
 
+import json
+
 import hindsight_hermes as plugin
 from conftest import SECRETS, FakeClient
 
@@ -62,3 +64,14 @@ def test_a_config_file_still_takes_precedence(provider):
     assert instance._recall_sync is False
     assert instance._retain_indicator is True
     instance.shutdown()
+
+
+def test_routed_profile_with_no_local_config_uses_its_own_secrets(hermes_env, monkeypatch):
+    shared = hermes_env / ".hindsight" / "config.json"
+    shared.parent.mkdir()
+    shared.write_text(json.dumps({"mode": "cloud", "apiKey": "shared-key"}))
+    SECRETS["HINDSIGHT_API_KEY"] = "profile-key"
+    monkeypatch.setattr(plugin, "serves_routed_profile", lambda: True)
+    assert plugin._load_config()["apiKey"] == "profile-key"
+    monkeypatch.setattr(plugin, "serves_routed_profile", lambda: False)
+    assert plugin._load_config()["apiKey"] == "shared-key"
