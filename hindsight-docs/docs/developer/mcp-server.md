@@ -546,20 +546,6 @@ Retrieve a specific memory by ID.
 
 ---
 
-### get_causal_subgraph
-
-Inspect recorded causal links among memories matching a text query in the bank. The tool searches a bounded graph sample and returns the strongest matching links first. Each link contains the source and target memory text, the stored relationship label, and its weight.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `query_or_entity` | string | Yes | Text or entity name to match against memory text and context |
-| `relationship_filter` | string | No | Stored label to match. Supports `caused_by` and the legacy labels `causes`, `enables`, and `prevents`. Omit for all causal labels. |
-| `limit` | integer | No | Maximum number of links, 1–100 (default: 25) |
-
-Newly retained causal links use the label `caused_by`, with the effect as the source and the cause as the target. Historical and imported links can carry the other labels.
-
----
-
 ### list_documents
 
 List documents that have been ingested into the memory bank.

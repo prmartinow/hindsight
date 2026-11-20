@@ -473,7 +473,7 @@ class TestMentalModelToolRegistration:
         assert "get_page_tree" in tools
         assert "create_page" in tools
         assert "delete_page_node" in tools
-        assert len(tools) == 40
+        assert len(tools) == 39
 
     def test_all_tools_have_nonempty_descriptions(self):
         """Every registered tool must expose a non-empty description.
