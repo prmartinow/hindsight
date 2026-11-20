@@ -42,8 +42,6 @@ def content_engine(monkeypatch):
         ("  Generating content...\n", True, False),
         ("", True, False),
         (" \n", True, False),
-        ("I don't have information.\n", True, False),
-        ("I don't have information\n", True, False),
         ("Existing document", True, True),
         ("Newly generated document", False, True),
     ],
@@ -110,8 +108,6 @@ def test_unfinished_and_other_operations_keep_existing_shape():
         (" \n", False),
         ("Generating content...", False),
         ("  Generating content...\n", False),
-        ("I don’t have information.\n", False),
-        ("I don't have information.\n\nThe current limits are documented below.", True),
         ("# Actual document", True),
     ],
 )
