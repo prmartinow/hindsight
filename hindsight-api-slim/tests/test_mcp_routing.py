@@ -1,6 +1,5 @@
 """Test MCP server routing with dynamic bank_id."""
 
-import json
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -456,58 +455,6 @@ def test_global_mcp_allowlist_with_only_extension_tools_registers_no_builtins(mo
     config = MagicMock(mcp_enabled_tools=["extension_tool"])
     monkeypatch.setattr(mcp, "_get_raw_config", lambda: config)
     assert not _tools(mcp.create_mcp_server(mock_memory, multi_bank=False))
-
-
-@pytest.mark.parametrize("multi_bank", [False, True])
-@pytest.mark.asyncio
-async def test_causal_subgraph_filters_stored_edges_in_the_authorized_bank(mock_memory, multi_bank):
-    from hindsight_api.api.mcp import _current_bank_id, _current_tenant_id, create_mcp_server
-
-    mock_memory.get_graph_data = AsyncMock(
-        return_value={
-            "nodes": [{"data": {"id": key, "text": key}} for key in ("outage", "failed check", "expired key")],
-            "edges": [
-                {
-                    "data": {
-                        "id": f"outage-{target}-{kind}",
-                        "source": "outage",
-                        "target": target,
-                        "linkType": kind,
-                        "weight": weight,
-                    }
-                }
-                for target, kind, weight in [
-                    ("failed check", "caused_by", 0.5),
-                    ("expired key", "caused_by", 1.0),
-                    ("expired key", "semantic", 2.0),
-                    ("failed check", "prevents", 3.0),
-                ]
-            ],
-            "table_rows": [],
-            "total_units": 3,
-            "limit": 120,
-        }
-    )
-    tool = _tools(create_mcp_server(mock_memory, multi_bank=multi_bank))["get_causal_subgraph"]
-    assert tool.annotations.readOnlyHint is True
-    assert ("bank_id" in tool.parameters["properties"]) is multi_bank
-    bank_token = _current_bank_id.set("session-bank")
-    tenant_token = _current_tenant_id.set("test-tenant")
-    try:
-        kwargs = {"bank_id": "explicit-bank"} if multi_bank else {}
-        result = await tool.fn(query_or_entity=" outage ", relationship_filter="Caused_By", limit=1, **kwargs)
-        if multi_bank:
-            result = json.loads(result)
-        call = mock_memory.get_graph_data.await_args.kwargs
-        assert call["bank_id"] == ("explicit-bank" if multi_bank else "session-bank")
-        assert call["request_context"].tenant_id == "test-tenant"
-        assert call["q"] == "outage"
-        assert result["count"] == 1
-        assert result["causal_links"][0]["relationship"] == "caused_by"
-        assert result["causal_links"][0]["to_text"] == "expired key"
-    finally:
-        _current_tenant_id.reset(tenant_token)
-        _current_bank_id.reset(bank_token)
 
 
 def test_mcp_instructions_append_to_retain_and_recall_descriptions(mock_memory):

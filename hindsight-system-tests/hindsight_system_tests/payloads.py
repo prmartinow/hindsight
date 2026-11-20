@@ -21,11 +21,6 @@ from .rulebook import ChatRequest
 FactType = Literal["world", "assistant"]
 
 
-class FactCausalRelation(BaseModel):
-    target_index: int
-    relation_type: Literal["caused_by"] = "caused_by"
-
-
 class Fact(BaseModel):
     """One extracted fact, mirroring the server's ``ExtractedFact``."""
 
@@ -48,7 +43,6 @@ class Fact(BaseModel):
     entities: list[str] = Field(default_factory=list)
     occurred_start: str | None = None
     occurred_end: str | None = None
-    causal_relations: list[FactCausalRelation] | None = None
     from_attachments: list[int] | None = None
     """1-based numbers of the chunk's attachments this fact was read off — the edge
     that makes a fact (and what it is consolidated into) carry its attachments."""
