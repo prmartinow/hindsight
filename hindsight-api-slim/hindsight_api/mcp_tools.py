@@ -27,6 +27,7 @@ from hindsight_api.config import (
 )
 from hindsight_api.engine import page_markdown
 from hindsight_api.engine.audit import AuditEntry, AuditLogger
+from hindsight_api.engine.causal_links import CAUSAL_LINK_TYPES
 from hindsight_api.engine.memory_engine import KEEP_PARENT
 from hindsight_api.engine.response_models import (
     VALID_RECALL_FACT_TYPES,
@@ -51,6 +52,7 @@ _Offset = Annotated[int, Field(ge=0)]
 _Limit = Annotated[int, Field(ge=0)]
 _Limit1000 = Annotated[int, Field(ge=1, le=1000)]
 _OperationsLimit = Annotated[int, Field(ge=1, le=100)]
+_CausalSubgraphLimit = Annotated[int, Field(ge=1, le=100)]
 
 # All tools available in the system (explicit list — no wildcards).
 # Defined here (shared module) to avoid circular imports with api/mcp.py.
@@ -93,6 +95,7 @@ _ALL_TOOLS: frozenset[str] = frozenset(
         "delete_directive",
         "list_memories",
         "get_memory",
+        "get_causal_subgraph",
         "update_memory",
         "invalidate_memory",
         "list_documents",
@@ -655,6 +658,7 @@ _READ_ONLY_TOOLS = {
     "list_directives",
     "list_memories",
     "get_memory",
+    "get_causal_subgraph",
     "list_documents",
     "get_document",
     "list_operations",
@@ -721,7 +725,7 @@ def register_mcp_tools(
 
         config.knowledge_bank_refuser = _refuse_knowledge_bank
 
-    tools_to_register = canonical_tool_names(config.tools) if config.tools else set(_ALL_TOOLS)
+    tools_to_register = set(_ALL_TOOLS) if config.tools is None else canonical_tool_names(config.tools)
 
     if "retain" in tools_to_register:
         _register_retain(mcp, memory, config)
@@ -779,6 +783,9 @@ def register_mcp_tools(
 
     if "get_memory" in tools_to_register:
         _register_get_memory(mcp, memory, config)
+
+    if "get_causal_subgraph" in tools_to_register:
+        _register_get_causal_subgraph(mcp, memory, config)
 
     if "update_memory" in tools_to_register:
         _register_update_memory(mcp, memory, config)
@@ -1008,6 +1015,7 @@ _UNAUDITED_MCP_TOOLS: frozenset[str] = frozenset(
         "get_page_tree",
         "get_page",
         "get_memory",
+        "get_causal_subgraph",
         "get_mental_model",
         "get_operation",
         "list_banks",
@@ -3789,6 +3797,101 @@ def _register_get_memory(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsCon
                 as_json=False,
                 action="getting memory",
                 run=lambda target_bank: _run(target_bank, memory_id),
+            )
+
+
+class CausalSubgraphLink(BaseModel):
+    from_text: str
+    relationship: str
+    to_text: str
+    entity: str | None
+    weight: float
+
+
+class CausalSubgraphResult(BaseModel):
+    query: str
+    bank_id: str
+    causal_links: list[CausalSubgraphLink]
+    count: int
+
+
+def _register_get_causal_subgraph(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
+    """Register the read-only view of stored causal links."""
+
+    async def _run(target_bank: str, query_or_entity: str, relationship_filter: str, limit: int) -> dict[str, Any]:
+        from hindsight_api.api.http import GraphDataResponse
+
+        query = query_or_entity.strip()
+        kind = relationship_filter.strip().lower()
+        if not query:
+            raise _ToolError("query_or_entity cannot be empty")
+        if kind and kind not in CAUSAL_LINK_TYPES:
+            raise _ToolError(f"relationship_filter must be one of: {', '.join(CAUSAL_LINK_TYPES)}")
+        kinds = (kind,) if kind else CAUSAL_LINK_TYPES
+        graph = GraphDataResponse.model_validate(
+            await memory.get_graph_data(
+                bank_id=target_bank,
+                q=query,
+                # A bounded sample can include more memories than the requested number of edges.
+                limit=max(120, 4 * limit),
+                request_context=_get_request_context(config),
+            )
+        )
+        texts = {node.data.id: node.data.text for node in graph.nodes}
+        links = [
+            CausalSubgraphLink(
+                from_text=texts[edge.source],
+                relationship=edge.linkType,
+                to_text=texts[edge.target],
+                entity=edge.entityName or None,
+                weight=edge.weight,
+            )
+            for item in graph.edges
+            if (edge := item.data).linkType in kinds and edge.source in texts and edge.target in texts
+        ]
+        links.sort(key=lambda link: link.weight, reverse=True)
+        links = links[:limit]
+        return CausalSubgraphResult(
+            query=query_or_entity, bank_id=target_bank, causal_links=links, count=len(links)
+        ).model_dump()
+
+    description = (
+        "Inspect stored causal links among a bounded sample of memories matching text in one bank. "
+        "Use relationship_filter to select caused_by or a stored legacy label (causes, enables, prevents). "
+        "Returns the strongest matching links first."
+    )
+
+    if config.include_bank_id_param:
+
+        @mcp.tool(description=description, annotations=_tool_annotations("get_causal_subgraph"), output_schema=None)
+        async def get_causal_subgraph(
+            query_or_entity: str,
+            relationship_filter: str = "",
+            limit: _CausalSubgraphLimit = 25,
+            bank_id: str | None = None,
+        ) -> str:
+            return await _run_tool(
+                config,
+                bank_id=bank_id,
+                as_json=True,
+                action="getting causal links",
+                run=lambda target_bank: _run(target_bank, query_or_entity, relationship_filter, limit),
+            )
+
+    else:
+
+        @mcp.tool(description=description, annotations=_tool_annotations("get_causal_subgraph"))
+        async def get_causal_subgraph(
+            query_or_entity: str,
+            relationship_filter: str = "",
+            limit: _CausalSubgraphLimit = 25,
+        ) -> dict[str, Any]:
+            return await _run_tool(
+                config,
+                bank_id=None,
+                as_json=False,
+                action="getting causal links",
+                run=lambda target_bank: _run(target_bank, query_or_entity, relationship_filter, limit),
             )
 
 
