@@ -707,6 +707,14 @@ def test_a_slow_prefetch_never_overwrites_a_newer_one(provider):
     instance.shutdown()
 
 
+@pytest.mark.parametrize("preference", [True, False])
+def test_recall_forwards_the_profiles_explicit_observation_preference(provider, preference):
+    instance, client = provider({"prefer_observations": preference})
+    instance.handle_tool_call("hindsight_recall", {"query": "current deployment"})
+    assert client.recalls[0]["prefer_observations"] is preference
+    instance.shutdown()
+
+
 def test_recall_tags_accept_the_documented_comma_separated_form(provider):
     """#4662: the string went to the client as-is and the API rejected it (422)."""
     instance, fake = provider({"recall_tags": "team, project-x"})

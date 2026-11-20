@@ -97,7 +97,12 @@ def _install_hermes_stubs(hermes_home: Path) -> None:
         RecallStatus=RecallStatus,
         spawn_context_thread=_spawn_context_thread,
     )
-    module("agent.secret_scope", get_secret=_get_secret, UnscopedSecretError=UnscopedSecretError)
+    module(
+        "agent.secret_scope",
+        get_secret=_get_secret,
+        UnscopedSecretError=UnscopedSecretError,
+        serves_routed_profile=lambda: False,
+    )
     module("agent.async_utils", safe_schedule_threadsafe=_safe_schedule_threadsafe)
     module("hermes_cli")
     module("hermes_cli.config", cfg_get=_cfg_get, save_config=lambda *a, **k: None)
