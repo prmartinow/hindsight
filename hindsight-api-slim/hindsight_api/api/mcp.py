@@ -146,6 +146,7 @@ def create_mcp_server(memory: MemoryEngine, multi_bank: bool = True) -> FastMCP:
             "delete_directive",
             "list_memories",
             "get_memory",
+            "get_causal_subgraph",
             "update_memory",
             "invalidate_memory",
             "list_documents",

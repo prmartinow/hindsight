@@ -13801,10 +13801,9 @@ class MemoryEngine(MemoryEngineInterface):
             Dict with nodes, edges, table_rows, total_units, and limit
         """
         await self._authenticate_tenant(request_context)
-        # Declared optional for backwards compatibility, but every path below requires a bank:
-        # the existence check, the store's `graph_view`, and the authorization context all take
-        # `str`. Without this the call fails later and less clearly -- the only caller is an HTTP
-        # route whose `bank_id` is a path parameter, so None does not arrive in practice.
+        # Keep the optional argument for compatibility. The HTTP and MCP routes
+        # resolve a bank before calling this method. Direct callers must also
+        # supply one for existence and authorization checks.
         if bank_id is None:
             raise ValueError("bank_id is required to read graph data")
 
