@@ -284,6 +284,7 @@ The lookup stops at the repository root. Only `bank_id` is read.
 | `recall_tags_match` | `any` | Tag matching mode: `any` / `all` / `any_strict` / `all_strict` |
 | `reflect_tags` | — | Tags that scope what reflect reasons over (the `hindsight_reflect` tool and `recall_prefetch_method: reflect`), as a JSON list or comma-separated text. Unset, reflect uses the whole bank; `recall_tags` does not apply to reflect. |
 | `reflect_tags_match` | `any` | Tag matching mode for `reflect_tags` |
+| `prefer_observations` | SDK default | Set to `true` to suppress raw facts already represented by a returned observation when recalling both kinds. Set to `false` to keep both. |
 | `recall_types` | `observation` | Fact types surfaced by recall (both auto-recall and the `hindsight_recall` tool). Comma-separated string or JSON list. **Default narrowed to `observation` only** (see "Behavior change" below). Set to `observation,world,experience` to also include raw facts. |
 | `recall_min_scores` | — | Minimum relevance per score field, as a JSON object (e.g. `{"reranker": 0.25}` or `{"semantic": 0.5}`). Applies to both auto-recall and the `hindsight_recall` tool. See the tip below. |
 | `auto_recall` | `true` | Automatically recall memories before each turn |
@@ -298,6 +299,10 @@ The lookup stops at the repository root. Only `bank_id` is read.
 > Per [Hindsight's docs](/developer/observations), observations are the **consolidated** knowledge layer Hindsight builds on top of raw facts: deduplicated beliefs grounded in evidence, refined as new facts arrive, with proof counts and freshness signals. Raw `world` / `experience` facts are the individual supporting evidence that feeds them. For per-turn context injection, observations are denser per token and avoid feeding the model multiple raw facts that one observation already summarizes.
 >
 > Restore the broad recall with `"recall_types": "observation,world,experience"` (string or JSON list) in `~/.hermes/hindsight/config.json`. This applies to **both** auto-recall and the `hindsight_recall` tool — both read the same `recall_types` setting (the tool schema has no per-call `types` argument), so narrowing the default narrows both paths.
+
+`prefer_observations` applies to both forms of recall when `recall_types` includes observations and raw facts.
+When the setting is omitted, `hindsight-client` 1.1.0 and later inherit the bank's preference. Earlier supported
+clients default to `false`.
 
 > **Tip — `recall_min_scores` against off-topic recall.** Recall ranks, it does not judge relevance: a question
 > unrelated to anything stored still comes back with up to `recall_max_tokens` of the least-bad memories. The

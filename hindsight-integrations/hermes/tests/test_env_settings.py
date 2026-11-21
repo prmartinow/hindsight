@@ -2,6 +2,7 @@
 ``hindsight/config.json``: the retain label, both status-line indicators and synchronous recall."""
 
 import hindsight_hermes as plugin
+import pytest
 from conftest import SECRETS, FakeClient
 
 
@@ -62,3 +63,21 @@ def test_a_config_file_still_takes_precedence(provider):
     assert instance._recall_sync is False
     assert instance._retain_indicator is True
     instance.shutdown()
+
+
+@pytest.mark.parametrize(
+    "config,expected",
+    [
+        ({}, {}),
+        ({"prefer_observations": True}, {"prefer_observations": True}),
+        ({"prefer_observations": False}, {"prefer_observations": False}),
+    ],
+)
+def test_recall_forwards_only_a_profiles_explicit_observation_preference(provider, config, expected):
+    instance, client = provider(config)
+    try:
+        instance.handle_tool_call("hindsight_recall", {"query": "current deployment"})
+        preference = {key: value for key, value in client.recalls[0].items() if key == "prefer_observations"}
+        assert preference == expected
+    finally:
+        instance.shutdown()
