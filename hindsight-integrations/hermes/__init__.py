@@ -1625,6 +1625,7 @@ class HindsightMemoryProvider(MemoryProvider):
             self._recall_types = [t.strip() for t in configured_types.split(",") if t.strip()]
         else:
             self._recall_types = list([] if configured_types is None else configured_types) or ["observation"]
+        self._prefer_observations = cfg.get("prefer_observations")
         self._recall_min_scores = _normalize_min_scores(cfg.get("recall_min_scores"))
         self._recall_prompt_preamble = cfg.get("recall_prompt_preamble", "")
         self._recall_indicator = bool(cfg.get("recall_indicator", True))
@@ -1752,6 +1753,8 @@ class HindsightMemoryProvider(MemoryProvider):
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
+        if isinstance(self._prefer_observations, bool):
+            kwargs["prefer_observations"] = self._prefer_observations
         if self._recall_min_scores:
             kwargs["min_scores"] = self._recall_min_scores
 
