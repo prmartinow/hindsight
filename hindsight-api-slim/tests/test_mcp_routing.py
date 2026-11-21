@@ -366,9 +366,8 @@ async def test_middleware_handles_both_endpoints(mock_memory):
 def test_registered_tool_sets_match_the_allowlists(mock_memory):
     """Every allowlisted tool name must resolve to a really-registered tool.
 
-    Three hand-maintained lists have to agree: ``_ALL_TOOLS``, the default set in
-    ``register_mcp_tools()``, and the single-bank allowlist in
-    ``create_mcp_server()``. A name added to one but not the others is silent —
+    The registered tools must match ``_ALL_TOOLS`` and the single-bank allowlist
+    in ``create_mcp_server()``. A name added to one but not the others is silent —
     the tool simply never appears on the endpoint and nothing fails — so assert
     over the whole sets rather than spot-checking tool names.
     """
@@ -444,6 +443,15 @@ def test_global_mcp_enabled_tools_intersects_with_single_bank_mode(mock_memory):
     assert "retain" in tools
     assert "recall" in tools
     assert "list_banks" not in tools  # single-bank mode excludes it regardless
+
+
+@pytest.mark.parametrize("multi_bank", [False, True])
+def test_global_mcp_allowlist_with_only_extension_tools_registers_no_builtins(mock_memory, monkeypatch, multi_bank):
+    from hindsight_api.api import mcp
+
+    config = MagicMock(mcp_enabled_tools=["extension_tool"])
+    monkeypatch.setattr(mcp, "_get_raw_config", lambda: config)
+    assert not _tools(mcp.create_mcp_server(mock_memory, multi_bank=multi_bank))
 
 
 def test_mcp_instructions_append_to_retain_and_recall_descriptions(mock_memory):

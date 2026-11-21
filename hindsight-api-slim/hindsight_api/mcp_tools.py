@@ -671,51 +671,7 @@ def register_mcp_tools(
 
         config.bank_alias_resolver = _resolve_alias
 
-    tools_to_register = (
-        canonical_tool_names(config.tools)
-        if config.tools
-        else {
-            "retain",
-            "sync_retain",
-            "recall",
-            "reflect",
-            "list_banks",
-            "create_bank",
-            "list_mental_models",
-            "get_mental_model",
-            "create_mental_model",
-            "update_mental_model",
-            "delete_mental_model",
-            "refresh_mental_model",
-            "clear_mental_model",
-            "list_directives",
-            "create_directive",
-            "delete_directive",
-            "list_memories",
-            "get_memory",
-            "update_memory",
-            "invalidate_memory",
-            "list_documents",
-            "get_document",
-            "delete_document",
-            "list_operations",
-            "get_operation",
-            "cancel_operation",
-            "list_tags",
-            "get_bank",
-            "get_bank_stats",
-            "update_bank",
-            "delete_bank",
-            "clear_memories",
-            "get_page_tree",
-            "search_pages",
-            "get_page",
-            "create_page_folder",
-            "create_page",
-            "update_page_node",
-            "delete_page_node",
-        }
-    )
+    tools_to_register = _ALL_TOOLS if config.tools is None else canonical_tool_names(config.tools)
 
     if "retain" in tools_to_register:
         _register_retain(mcp, memory, config)
