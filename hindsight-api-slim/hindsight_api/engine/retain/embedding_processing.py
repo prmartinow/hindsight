@@ -18,53 +18,39 @@ def format_readable_date(dt: datetime) -> str:
     return dt.strftime("%B %Y")
 
 
-def augment_texts_with_dates(
-    facts: list[ExtractedFact],
-    format_date_fn,
-    max_fact_text_chars: int = 24000,
-    max_entities: int = 20,
-) -> list[str]:
+def augment_texts_with_dates(facts: list[ExtractedFact], format_date_fn) -> list[str]:
     """
-    Augment fact texts with readable dates and bounded entity tags for optimal embedding retrieval.
+    Augment fact texts with readable dates for better temporal matching.
 
-    Mitigates unbounded string amplification and preserves temporal/entity metadata suffixes
-    from downstream tail-truncation.
+    This allows queries like "camping in June" to match facts that happened in June.
 
     Args:
         facts: List of ExtractedFact objects
         format_date_fn: Function to format datetime to readable string
-        max_fact_text_chars: Maximum characters allowed for raw fact text before suffixing
-        max_entities: Maximum unique entity tags attached to embedding representation
 
     Returns:
         List of augmented text strings (same length as facts)
     """
     augmented_texts = []
     for fact in facts:
-        raw_text = fact.fact_text or ""
-        # Pre-bound raw text if unusually large so temporal/entity suffixes remain intact
-        if len(raw_text) > max_fact_text_chars:
-            raw_text = raw_text[:max_fact_text_chars]
-
         # Use occurred_start as the representative date, fall back to mentioned_at
         fact_date = fact.occurred_start or fact.mentioned_at
+        # Augment text with date and entity names for embedding (but store original text in DB)
+        # Entity names (including key:value labels) improve retrieval without polluting stored content
         if fact_date is not None:
             readable_date = format_date_fn(fact_date)
             if fact.occurred_end and fact.occurred_end != fact.occurred_start:
                 readable_end = format_date_fn(fact.occurred_end)
-                augmented_text = f"{raw_text} (happened from {readable_date} to {readable_end})"
+                augmented_text = f"{fact.fact_text} (happened from {readable_date} to {readable_end})"
             else:
-                augmented_text = f"{raw_text} (happened in {readable_date})"
+                augmented_text = f"{fact.fact_text} (happened in {readable_date})"
         else:
-            augmented_text = raw_text
-
+            augmented_text = fact.fact_text
         if fact.entities:
-            # Sort before applying limits so retain, edit, import and reembed use
-            # the same representation regardless of the incoming entity order.
-            names = sorted({name.strip() for name in fact.entities if name.strip()})
-            entity_text = ", ".join(names[:max_entities])[:500]
-            if entity_text:
-                augmented_text = f"{augmented_text} [{entity_text}]"
+            # Deduplicated and sorted, so every path that embeds a fact (retain, edit, revert,
+            # import, admin reembed) builds the same text from the same names, whatever order
+            # it read them in.
+            augmented_text = f"{augmented_text} [{', '.join(sorted(set(fact.entities)))}]"
         augmented_texts.append(augmented_text)
     return augmented_texts
 
