@@ -1118,6 +1118,10 @@ class MentalModelTrigger(BaseModel):
         default=None,
         description="Exclude specific mental models by ID from the reflect loop.",
     )
+    require_scoped_evidence: bool = Field(
+        default=False,
+        description="Require a positive, exact tag filter for refreshes of this document.",
+    )
     tags_match: TagsMatch | None = Field(
         default=None,
         description=(

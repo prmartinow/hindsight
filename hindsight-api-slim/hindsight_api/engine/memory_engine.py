@@ -624,6 +624,13 @@ class MentalModelRefreshError(Exception):
         self.retryable = retryable
 
 
+class UnscopedRefreshError(MentalModelRefreshError, ValueError):
+    """A saved evidence scope cannot be used for a refresh."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, outcome="refresh_failed_error", reason="unscoped_sources", retryable=False)
+
+
 def validate_sql_schema(sql: str) -> None:
     """
     Validate that SQL doesn't contain unqualified table references.
@@ -777,6 +784,7 @@ from .reflect.tools import (
     tool_search_mental_models,
     tool_search_observations,
 )
+from .refresh_scope import validate_refresh_evidence_scope
 from .remote_retry import RetryPolicy, is_transient_remote_error, status_code_of
 from .response_models import (
     DIRECTIVE_PRIORITY_MAX,
@@ -18403,6 +18411,7 @@ class MemoryEngine(MemoryEngineInterface):
         _refuse_tags_outside_scope(tags, tag_scope)
         self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a mental model")
         trigger = _scope_mental_model_trigger(trigger, tag_scope)
+        validate_refresh_evidence_scope(tags, trigger)
         backend = await self._get_backend()
 
         embedding_vec = await self._mental_model_embedding_vector(bank_id, name, content)
@@ -18767,6 +18776,10 @@ class MemoryEngine(MemoryEngineInterface):
 
         trigger_data: dict[str, Any] = dict(mental_model.get("trigger") or {})
         model_tags: list[str] | None = mental_model.get("tags")
+        try:
+            validate_refresh_evidence_scope(model_tags, trigger_data)
+        except OperationValidationError as error:
+            raise UnscopedRefreshError(error.reason) from error
 
         # Read reflect options from trigger (if stored)
         fact_types = trigger_data.get("fact_types")
@@ -20169,8 +20182,8 @@ class MemoryEngine(MemoryEngineInterface):
             )
             new_embedding_str = str(new_embedding_vec) if new_embedding_vec else None
 
-        # The exit stack carries the row lock a trigger patch or document edit takes
-        # below; it stays empty (and free) on every other update.
+        # Validate scope-affecting updates under the same row lock used to save the trigger.
+        scope_changed = trigger is not None or tags is not None or source_query is not None
         async with use_or_acquire(backend, conn) as conn, AsyncExitStack() as stack:
             # A supplied trigger PATCHES the stored one (see _merge_trigger): callers
             # send only the fields they set, so the rest have to be read back rather
@@ -20185,7 +20198,7 @@ class MemoryEngine(MemoryEngineInterface):
             # computed from a pre-image read off the lock, and a concurrent edit may have moved
             # the other half since (#5297). Re-checked under the lock, and re-embedded only in
             # that rare race, so a slow embedder still never pins a connection in the common case.
-            if trigger is not None or document_changed:
+            if scope_changed or document_changed:
                 await stack.enter_async_context(conn.transaction())
                 locked_row = await conn.fetchrow(
                     f"SELECT trigger, tags, name, content, reflect_response FROM {fq_table('mental_models')} "
@@ -20198,6 +20211,9 @@ class MemoryEngine(MemoryEngineInterface):
                 if trigger is not None:
                     trigger = self._merge_trigger(trigger, base=self._stored_trigger(locked_row["trigger"]))
                     trigger = _scope_mental_model_trigger(trigger, tag_scope)
+                if scope_changed:
+                    effective_trigger = trigger if trigger is not None else self._stored_trigger(locked_row["trigger"])
+                    validate_refresh_evidence_scope(tags if tags is not None else locked_row["tags"], effective_trigger)
                 if content is not None:
                     # Snapshot for history from the locked row, so it is the content this write replaces.
                     previous_content = locked_row["content"]
@@ -20929,8 +20945,6 @@ class MemoryEngine(MemoryEngineInterface):
             await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
         await self._require_page_nodes_in_tag_scope(bank_id, request_context, [parent_id])
         mental_model_id = mental_model_id or f"mm-{uuid.uuid4().hex}"
-        embedding_vec = await self._mental_model_embedding_vector(bank_id, name, content)
-        embedding = str(embedding_vec) if embedding_vec else None
         effective_max_tokens = max_tokens if max_tokens is not None else self.PAGE_DEFAULT_MAX_TOKENS
         # Built-in default <- bank/tenant/global page_default_trigger <- request.
         bank_config = await self._config_resolver.get_bank_config(bank_id, request_context)
@@ -20941,6 +20955,9 @@ class MemoryEngine(MemoryEngineInterface):
         _refuse_tags_outside_scope(tags, page_scope)
         self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a page")
         effective_trigger = _scope_mental_model_trigger(effective_trigger, page_scope)
+        validate_refresh_evidence_scope(tags, effective_trigger)
+        embedding_vec = await self._mental_model_embedding_vector(bank_id, name, content)
+        embedding = str(embedding_vec) if embedding_vec else None
         backend = await self._get_backend()
         page_id = f"kp-{uuid.uuid4().hex}"
         created = False
@@ -24894,6 +24911,8 @@ class MemoryEngine(MemoryEngineInterface):
             await self._write_tag_scope(bank_id, request_context),
             f"mental model '{mental_model_id}'",
         )
+
+        validate_refresh_evidence_scope(mental_model.get("tags"), mental_model.get("trigger"))
 
         # Pass tenant_id and api_key_id through task payload so the worker
         # can provide request context to extension hooks.

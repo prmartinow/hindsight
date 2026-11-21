@@ -88,6 +88,7 @@ RefreshFailureReason = Literal[
     "structured_output_failed",
     "candidate_rejected",
     "retrieval_failed",
+    "unscoped_sources",
     "no_answer",
     "unexpected_error",
 ]

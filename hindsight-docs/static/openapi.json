@@ -17028,6 +17028,12 @@
             "title": "Exclude Mental Model Ids",
             "description": "Exclude specific mental models by ID from the reflect loop."
           },
+          "require_scoped_evidence": {
+            "type": "boolean",
+            "title": "Require Scoped Evidence",
+            "description": "Require a positive, exact tag filter for refreshes of this document.",
+            "default": false
+          },
           "tags_match": {
             "anyOf": [
               {
@@ -17266,6 +17272,12 @@
             ],
             "title": "Exclude Mental Model Ids",
             "description": "Exclude specific mental models by ID from the reflect loop."
+          },
+          "require_scoped_evidence": {
+            "type": "boolean",
+            "title": "Require Scoped Evidence",
+            "description": "Require a positive, exact tag filter for refreshes of this document.",
+            "default": false
           },
           "tags_match": {
             "anyOf": [
@@ -20178,6 +20190,7 @@
                   "structured_output_failed",
                   "candidate_rejected",
                   "retrieval_failed",
+                  "unscoped_sources",
                   "no_answer",
                   "unexpected_error"
                 ]

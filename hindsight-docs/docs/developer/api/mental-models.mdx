@@ -115,6 +115,7 @@ Mental models can be configured to **automatically refresh** when observations a
 |---------|------|---------|-------------|
 | `mode` | `"full"` \| `"delta"` | `"full"` | Refresh strategy. See [Refresh Mode](#refresh-mode) below. |
 | `refresh_after_consolidation` | bool | false | Automatically refresh after observations consolidation |
+| `require_scoped_evidence` | bool | false | Require a positive, exact tag filter before the document can be saved or refreshed. |
 | `refresh_cron` | string \| null | null | UTC 5-field cron expression for scheduled refreshes, such as `"0 3 * * *"` for daily at 03:00 UTC |
 | `full_refresh_cron` | string \| null | null | UTC 5-field cron expression for a scheduled **full** refresh of a delta model, such as `"0 3 * * 0"` for Sundays at 03:00 UTC. Works alongside either trigger above. See [Scheduled Full Refresh](#scheduled-full-refresh). |
 | `min_refresh_interval_seconds` | int \| null | null | Minimum seconds between two *automatic* refreshes of this model. See [Rate-limiting automatic refreshes](#rate-limiting-automatic-refreshes) below. `null` uses the bank/global default. |
@@ -131,6 +132,16 @@ Mental models can be configured to **automatically refresh** when observations a
 | `budget` | string \| null | null | How many agent steps a refresh may spend, as a multiple of the server's `reflect_max_iterations`: `low` halves it, `mid` keeps it, `high` doubles it. `null` means `mid` — a refresh writes a whole document, so it does not inherit the `low` an ad-hoc reflect defaults to. |
 | `response_schema` | object \| null | null | JSON Schema for structured output. When set, each refresh also stores a `structured_output` alongside the markdown content. See [Structured Output](#structured-output) below. |
 | `keep_trace` | bool | false | Record how each refresh reached its result under `reflect_response.trace`. See [Troubleshoot a Refresh](#troubleshoot-a-refresh). |
+
+Enable `require_scoped_evidence` to guard a page against accidentally reading the whole bank.
+Supply nonempty `tags` with a strict match mode, or use exact `tag_groups` with a positive
+filter in every OR branch. A full refresh still uses the same filters. If valid filters match
+no eligible evidence, the existing empty-scope behavior applies. Choose sibling-page access
+with `exclude_mental_models`.
+
+To enable the guard by default for new pages in a bank, set
+`page_default_trigger` to include `{"require_scoped_evidence": true}`.
+Existing pages keep their saved triggers and can opt in individually.
 
 When `refresh_after_consolidation` is enabled, the mental model will be re-generated every time the bank's observations are consolidated — ensuring it always reflects the latest synthesized knowledge.
 
