@@ -721,7 +721,7 @@ def register_mcp_tools(
 
         config.knowledge_bank_refuser = _refuse_knowledge_bank
 
-    tools_to_register = canonical_tool_names(config.tools) if config.tools else set(_ALL_TOOLS)
+    tools_to_register = _ALL_TOOLS if config.tools is None else canonical_tool_names(config.tools)
 
     if "retain" in tools_to_register:
         _register_retain(mcp, memory, config)
