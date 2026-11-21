@@ -707,11 +707,34 @@ def test_a_slow_prefetch_never_overwrites_a_newer_one(provider):
     instance.shutdown()
 
 
-@pytest.mark.parametrize("preference", [True, False])
-def test_recall_forwards_the_profiles_explicit_observation_preference(provider, preference):
-    instance, client = provider({"prefer_observations": preference})
+def test_superseded_prefetch_skips_recall_after_waiting_for_retain(provider, monkeypatch) -> None:
+    instance, fake = provider({"prefetch_retain_drain_timeout": 5}, client=FakeClient(["fresh memory"]))
+    workers_waiting = threading.Barrier(3)
+
+    def wait_for_retains_drained(timeout: float) -> bool:
+        workers_waiting.wait(timeout)
+        return True
+
+    monkeypatch.setattr(instance, "_wait_for_retains_drained", wait_for_retains_drained)
+    instance.queue_prefetch("old")
+    old_worker = instance._prefetch_thread
+    instance.queue_prefetch("new")
+    new_worker = instance._prefetch_thread
+    workers_waiting.wait(5)
+    old_worker.join(5)
+    new_worker.join(5)
+
+    assert not old_worker.is_alive()
+    assert not new_worker.is_alive()
+    assert [call["query"] for call in fake.recalls] == ["new"]
+    assert "fresh memory" in instance.prefetch("next")
+    instance.shutdown()
+
+
+def test_recall_leaves_observation_preference_to_the_bank(provider) -> None:
+    instance, client = provider({"prefer_observations": True})
     instance.handle_tool_call("hindsight_recall", {"query": "current deployment"})
-    assert client.recalls[0]["prefer_observations"] is preference
+    assert "prefer_observations" not in client.recalls[0]
     instance.shutdown()
 
 

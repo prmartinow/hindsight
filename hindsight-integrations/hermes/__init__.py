@@ -1628,7 +1628,6 @@ class HindsightMemoryProvider(MemoryProvider):
             self._recall_types = [t.strip() for t in configured_types.split(",") if t.strip()]
         else:
             self._recall_types = list([] if configured_types is None else configured_types) or ["observation"]
-        self._prefer_observations = cfg.get("prefer_observations")
         self._recall_min_scores = _normalize_min_scores(cfg.get("recall_min_scores"))
         self._recall_prompt_preamble = cfg.get("recall_prompt_preamble", "")
         self._recall_indicator = bool(cfg.get("recall_indicator", True))
@@ -1756,8 +1755,6 @@ class HindsightMemoryProvider(MemoryProvider):
             kwargs.update(tags=self._recall_tags, tags_match=self._recall_tags_match)
         if self._recall_types:
             kwargs["types"] = self._recall_types
-        if isinstance(self._prefer_observations, bool):
-            kwargs["prefer_observations"] = self._prefer_observations
         if self._recall_min_scores:
             kwargs["min_scores"] = self._recall_min_scores
 
@@ -1889,11 +1886,15 @@ class HindsightMemoryProvider(MemoryProvider):
             self._prefetch_generation += 1
             generation = self._prefetch_generation
 
-        def _run():
+        def _run() -> None:
             # Wait (bounded, off the reply path) for the just-completed turn's
             # retain to be recall-visible so the warmed context includes it.
             if self._prefetch_waits_for_retain:
                 self._wait_for_retains_drained(self._prefetch_retain_drain_timeout)
+            # A newer turn can supersede this worker while retention is pending.
+            with self._prefetch_lock:
+                if generation != self._prefetch_generation:
+                    return
             text, count = self._do_recall(query)
             if text:
                 with self._prefetch_lock:
