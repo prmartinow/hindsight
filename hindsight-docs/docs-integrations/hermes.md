@@ -222,8 +222,11 @@ for the default profile). `hermes memory setup` writes it. The plugin reads the 
 not empty:
 
 1. `$HERMES_HOME/hindsight/config.json` — this profile only
-2. `~/.hindsight/config.json` — shared by every profile
+2. `~/.hindsight/config.json` — legacy shared fallback for standalone Hermes sessions
 3. Environment variables (see Environment Variables)
+
+When Hermes serves a routed profile, the plugin uses that profile's config and environment settings.
+This isolation requires Hermes's routed-profile detection API, available in Hermes v2026.9.21 and later.
 
 A profile has exactly one config. To give one profile different banks per repository, workspace, platform or user,
 use `bank_id_template` or the multiple banks settings below; for fully separate setups, use

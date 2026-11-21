@@ -26,6 +26,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
+from agent import secret_scope
 from agent.memory_provider import MemoryProvider, RecallStatus, spawn_context_thread
 from agent.secret_scope import UnscopedSecretError, get_secret
 from hermes_cli.config import cfg_get
@@ -423,9 +424,12 @@ def _bank_not_written_yet(exc: Exception) -> bool:
 
 
 def _load_config() -> dict:
-    """$HERMES_HOME/hindsight/config.json (profile-scoped), else ~/.hindsight/config.json
-    (legacy, shared), else environment variables."""
-    for path in (get_hermes_home() / "hindsight" / "config.json", Path.home() / ".hindsight" / "config.json"):
+    """Read profile config, legacy standalone config, or scoped environment values."""
+    paths = [get_hermes_home() / "hindsight" / "config.json"]
+    # Hermes releases before routed-profile detection keep the legacy lookup.
+    if not getattr(secret_scope, "serves_routed_profile", lambda: False)():
+        paths.append(Path.home() / ".hindsight" / "config.json")
+    for path in paths:
         # A corrupt (or empty) file falls through to the next source, as before the dedup.
         if path.exists() and (data := read_json_or_empty(path)):
             return data
