@@ -30,7 +30,6 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from hindsight_api.api.admission import admit_for, build_controller_from_config
 from hindsight_api.api.content_disposition import content_disposition
-from hindsight_api.api.directive_git import conflict_response, register_directive_git_routes
 from hindsight_api.api.disconnect import ClientDisconnectCancellationMiddleware, get_scope_cancellation_token
 from hindsight_api.api.gzip_offload import OffloadingGZipMiddleware
 from hindsight_api.api.observability import HttpObservabilityMiddleware
@@ -199,7 +198,6 @@ from hindsight_api.engine.bank_templates import (
     apply_bank_template_manifest,
     validate_bank_template,
 )
-from hindsight_api.engine.directive_git.models import Conflict as DirectiveConflict
 from hindsight_api.engine.embeddings import is_embedding_model_mismatch
 from hindsight_api.engine.llm_interface import ProviderContentPolicyError
 from hindsight_api.engine.memories.base import StoreWriteUnavailable
@@ -7171,8 +7169,6 @@ def _register_routes(app: FastAPI):
     # DIRECTIVES ENDPOINTS
     # =========================================================================
 
-    register_directive_git_routes(app, get_request_context, audited)
-
     @app.get(
         "/v1/default/banks/{bank_id}/directives",
         response_model=DirectiveListResponse,
@@ -7267,7 +7263,6 @@ def _register_routes(app: FastAPI):
         bank_id: str,
         body: CreateDirectiveRequest,
         request_context: RequestContext = Depends(get_request_context),
-        expected_revision: str | None = Header(default=None, alias="X-Hindsight-Expected-Revision"),
     ):
         """Create a directive."""
         try:
@@ -7279,11 +7274,8 @@ def _register_routes(app: FastAPI):
                 is_active=body.is_active,
                 tags=body.tags,
                 request_context=request_context,
-                **({"expected_revision": expected_revision} if expected_revision is not None else {}),
             )
             return DirectiveResponse(**directive)
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except OperationValidationError as e:
@@ -7307,7 +7299,6 @@ def _register_routes(app: FastAPI):
         directive_id: str,
         body: UpdateDirectiveRequest,
         request_context: RequestContext = Depends(get_request_context),
-        expected_revision: str | None = Header(default=None, alias="X-Hindsight-Expected-Revision"),
     ):
         """Update a directive."""
         try:
@@ -7320,15 +7311,12 @@ def _register_routes(app: FastAPI):
                 is_active=body.is_active,
                 tags=body.tags,
                 request_context=request_context,
-                **({"expected_revision": expected_revision} if expected_revision is not None else {}),
             )
             if directive is None:
                 raise HTTPException(status_code=404, detail=f"Directive '{directive_id}' not found")
             return DirectiveResponse(**directive)
         except OperationValidationError as e:
             raise HTTPException(status_code=e.status_code, detail=e.reason)
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except (AuthenticationError, HTTPException):
@@ -7348,7 +7336,6 @@ def _register_routes(app: FastAPI):
         bank_id: str,
         directive_id: str,
         request_context: RequestContext = Depends(get_request_context),
-        expected_revision: str | None = Header(default=None, alias="X-Hindsight-Expected-Revision"),
     ):
         """Delete a directive."""
         try:
@@ -7356,15 +7343,12 @@ def _register_routes(app: FastAPI):
                 bank_id=bank_id,
                 directive_id=directive_id,
                 request_context=request_context,
-                **({"expected_revision": expected_revision} if expected_revision is not None else {}),
             )
             if not deleted:
                 raise HTTPException(status_code=404, detail=f"Directive '{directive_id}' not found")
             return {"status": "deleted"}
         except OperationValidationError as e:
             raise HTTPException(status_code=e.status_code, detail=e.reason)
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except (AuthenticationError, HTTPException):
@@ -8340,8 +8324,6 @@ def _register_routes(app: FastAPI):
                 + result.get("entities_deleted", 0)
                 + result.get("documents_deleted", 0),
             )
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except OperationValidationError as e:
             raise HTTPException(status_code=e.status_code, detail=e.reason)
         except (AuthenticationError, HTTPException):
@@ -8431,8 +8413,6 @@ def _register_routes(app: FastAPI):
                 status_code=409,
                 detail=f"Bank '{e.bank_id}' changed or was deleted during template import; retry the import.",
             )
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e))
         except OperationValidationError as e:
@@ -8886,8 +8866,6 @@ def _register_routes(app: FastAPI):
                             history=False if include_history is None else include_history,
                         ),
                     )
-            except DirectiveConflict as e:
-                raise conflict_response(e) from e
             except ValueError as e:
                 # Invalid archive, unsupported schema version, or a target bank
                 # that already exists — all caller errors.
@@ -8975,8 +8953,6 @@ def _register_routes(app: FastAPI):
                 # Target already exists, an invalid bank id, or cloning onto itself.
                 raise HTTPException(status_code=400, detail=str(e))
             return BankTransferSubmitResponse(operation_id=submission["operation_id"])
-        except DirectiveConflict as e:
-            raise conflict_response(e) from e
         except OperationValidationError as e:
             raise HTTPException(status_code=e.status_code, detail=e.reason)
         except (AuthenticationError, HTTPException):

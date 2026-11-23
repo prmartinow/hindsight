@@ -68,7 +68,7 @@ claude mcp add --transport http hindsight http://localhost:8888/mcp/my-bank/
 
 ## Available Tools
 
-The available tools depend on the selected bank mode and enabled tool list.
+The local server exposes the full tool set (29 tools in multi-bank mode, 26 in single-bank mode):
 
 **Core Memory**
 
@@ -95,7 +95,6 @@ The available tools depend on the selected bank mode and enabled tool list.
 |------|-------------|
 | `list_directives` | List directives that guide memory processing |
 | `create_directive` | Create a new directive |
-| `update_directive` | Edit a directive by ID |
 | `delete_directive` | Delete a directive |
 
 **Memory Browsing**

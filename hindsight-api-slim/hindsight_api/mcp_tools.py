@@ -27,9 +27,6 @@ from hindsight_api.config import (
 )
 from hindsight_api.engine import page_markdown
 from hindsight_api.engine.audit import AuditEntry, AuditLogger
-from hindsight_api.engine.directive_git.models import Conflict as DirectiveConflict
-from hindsight_api.engine.directive_git.models import PublicationPending
-from hindsight_api.engine.directive_git.service import sync_directives as sync_directive_revision
 from hindsight_api.engine.memory_engine import KEEP_PARENT
 from hindsight_api.engine.response_models import (
     VALID_RECALL_FACT_TYPES,
@@ -93,8 +90,6 @@ _ALL_TOOLS: frozenset[str] = frozenset(
         "clear_mental_model",
         "list_directives",
         "create_directive",
-        "update_directive",
-        "sync_directives",
         "delete_directive",
         "list_memories",
         "get_memory",
@@ -518,10 +513,6 @@ async def _run_tool(
         if target_bank is None:
             return _err("No bank_id configured")
         return _ok(await run(target_bank))
-    except PublicationPending as exc:
-        return _ok({"error": str(exc), "state": "pending", "revision": exc.revision})
-    except DirectiveConflict as exc:
-        return _err(exc)
     except _ToolError as e:
         return _err(e)
     except OperationValidationError as e:
@@ -685,7 +676,6 @@ _DESTRUCTIVE_TOOLS = {
     "clear_mental_model",
     "delete_mental_model",
     "delete_directive",
-    "sync_directives",
     "delete_document",
     "invalidate_memory",
     "delete_page_node",
@@ -731,9 +721,7 @@ def register_mcp_tools(
 
         config.knowledge_bank_refuser = _refuse_knowledge_bank
 
-    tools_to_register = (
-        set(_ALL_TOOLS - {"sync_directives"}) if config.tools is None else canonical_tool_names(config.tools)
-    )
+    tools_to_register = set(_ALL_TOOLS) if config.tools is None else canonical_tool_names(config.tools)
 
     if "retain" in tools_to_register:
         _register_retain(mcp, memory, config)
@@ -781,12 +769,6 @@ def register_mcp_tools(
 
     if "create_directive" in tools_to_register:
         _register_create_directive(mcp, memory, config)
-
-    if "update_directive" in tools_to_register:
-        _register_update_directive(mcp, memory, config)
-
-    if "sync_directives" in tools_to_register:
-        _register_sync_directives(mcp, memory, config)
 
     if "delete_directive" in tools_to_register:
         _register_delete_directive(mcp, memory, config)
@@ -3510,13 +3492,7 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
     """Register the create_directive tool."""
 
     async def _run(
-        target_bank: str,
-        name: str,
-        content: str,
-        priority: int,
-        is_active: bool,
-        tags: list[str] | None,
-        expected_revision: str | None,
+        target_bank: str, name: str, content: str, priority: int, is_active: bool, tags: list[str] | None
     ) -> Any:
         directive = await memory.create_directive(
             target_bank,
@@ -3525,7 +3501,6 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             priority=priority,
             is_active=is_active,
             tags=tags,
-            **({"expected_revision": expected_revision} if expected_revision is not None else {}),
             request_context=_get_request_context(config),
         )
         return directive
@@ -3540,7 +3515,6 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             is_active: bool = True,
             tags: list[str] | None = None,
             bank_id: str | None = None,
-            expected_revision: str | None = None,
         ) -> str:
             """
             Create a new directive for a memory bank.
@@ -3550,7 +3524,6 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             Args:
                 name: Human-readable name for the directive
                 content: The directive content/instructions
-                expected_revision: Optional Git commit the edit must be based on.
                 priority: Priority level (higher = more important, default: 0)
                 is_active: Whether the directive is active (default: True)
                 tags: Optional tags for filtering
@@ -3561,7 +3534,7 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
                 bank_id=bank_id,
                 as_json=True,
                 action="creating directive",
-                run=lambda target_bank: _run(target_bank, name, content, priority, is_active, tags, expected_revision),
+                run=lambda target_bank: _run(target_bank, name, content, priority, is_active, tags),
             )
 
     else:
@@ -3573,7 +3546,6 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             priority: int = 0,
             is_active: bool = True,
             tags: list[str] | None = None,
-            expected_revision: str | None = None,
         ) -> dict:
             """
             Create a new directive for this memory bank.
@@ -3583,7 +3555,6 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             Args:
                 name: Human-readable name for the directive
                 content: The directive content/instructions
-                expected_revision: Optional Git commit the edit must be based on.
                 priority: Priority level (higher = more important, default: 0)
                 is_active: Whether the directive is active (default: True)
                 tags: Optional tags for filtering
@@ -3593,142 +3564,18 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
                 bank_id=None,
                 as_json=False,
                 action="creating directive",
-                run=lambda target_bank: _run(target_bank, name, content, priority, is_active, tags, expected_revision),
-            )
-
-
-def _register_update_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
-    async def _run(
-        target_bank: str,
-        directive_id: str,
-        name: str | None,
-        content: str | None,
-        priority: int | None,
-        is_active: bool | None,
-        tags: list[str] | None,
-        expected_revision: str | None,
-    ) -> Any:
-        if all(value is None for value in (name, content, priority, is_active, tags)):
-            raise _ToolError("Provide at least one directive field to update")
-        updated = await memory.update_directive(
-            target_bank,
-            directive_id,
-            name=name,
-            content=content,
-            priority=priority,
-            is_active=is_active,
-            tags=tags,
-            request_context=_get_request_context(config),
-            **({"expected_revision": expected_revision} if expected_revision is not None else {}),
-        )
-        if updated is None:
-            raise _ToolError(f"Directive '{directive_id}' not found")
-        return updated
-
-    if config.include_bank_id_param:
-
-        @mcp.tool(annotations=_tool_annotations("update_directive"), output_schema=None)
-        async def update_directive(
-            directive_id: str,
-            name: str | None = None,
-            content: str | None = None,
-            priority: int | None = None,
-            is_active: bool | None = None,
-            tags: list[str] | None = None,
-            expected_revision: str | None = None,
-            bank_id: str | None = None,
-        ) -> str:
-            """Update the supplied fields on a directive. Use expected_revision to require a particular Git commit."""
-            return await _run_tool(
-                config,
-                bank_id=bank_id,
-                as_json=True,
-                action="updating directive",
-                run=lambda target_bank: _run(
-                    target_bank, directive_id, name, content, priority, is_active, tags, expected_revision
-                ),
-            )
-
-    else:
-
-        @mcp.tool(annotations=_tool_annotations("update_directive"))
-        async def update_directive(
-            directive_id: str,
-            name: str | None = None,
-            content: str | None = None,
-            priority: int | None = None,
-            is_active: bool | None = None,
-            tags: list[str] | None = None,
-            expected_revision: str | None = None,
-        ) -> dict:
-            """Update the supplied fields on a directive. Use expected_revision to require a particular Git commit."""
-            return await _run_tool(
-                config,
-                bank_id=None,
-                as_json=False,
-                action="updating directive",
-                run=lambda target_bank: _run(
-                    target_bank, directive_id, name, content, priority, is_active, tags, expected_revision
-                ),
-            )
-
-
-def _register_sync_directives(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
-    async def _run(target_bank: str, revision: str | None, expected_revision: str | None, apply: bool) -> Any:
-        return await sync_directive_revision(
-            memory,
-            target_bank,
-            revision=revision,
-            expected_revision=expected_revision,
-            apply=apply,
-            request_context=_get_request_context(config),
-        )
-
-    if config.include_bank_id_param:
-
-        @mcp.tool(annotations=_tool_annotations("sync_directives"), output_schema=None)
-        async def sync_directives(
-            revision: str | None = None,
-            expected_revision: str | None = None,
-            apply: bool = False,
-            bank_id: str | None = None,
-        ) -> str:
-            """Inspect Git publication status. Supply a commit SHA to preview it, then apply=true to publish it."""
-            return await _run_tool(
-                config,
-                bank_id=bank_id,
-                as_json=True,
-                action="synchronizing directives",
-                run=lambda target_bank: _run(target_bank, revision, expected_revision, apply),
-            )
-
-    else:
-
-        @mcp.tool(annotations=_tool_annotations("sync_directives"))
-        async def sync_directives(
-            revision: str | None = None,
-            expected_revision: str | None = None,
-            apply: bool = False,
-        ) -> dict:
-            """Inspect Git publication status. Supply a commit SHA to preview it, then apply=true to publish it."""
-            return await _run_tool(
-                config,
-                bank_id=None,
-                as_json=False,
-                action="synchronizing directives",
-                run=lambda target_bank: _run(target_bank, revision, expected_revision, apply),
+                run=lambda target_bank: _run(target_bank, name, content, priority, is_active, tags),
             )
 
 
 def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
     """Register the delete_directive tool."""
 
-    async def _run(target_bank: str, directive_id: str, expected_revision: str | None) -> Any:
+    async def _run(target_bank: str, directive_id: str) -> Any:
         deleted = await memory.delete_directive(
             target_bank,
             directive_id,
             request_context=_get_request_context(config),
-            **({"expected_revision": expected_revision} if expected_revision is not None else {}),
         )
         if not deleted:
             raise _ToolError(f"Directive '{directive_id}' not found")
@@ -3740,7 +3587,6 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
         async def delete_directive(
             directive_id: str,
             bank_id: str | None = None,
-            expected_revision: str | None = None,
         ) -> str:
             """
             Delete a directive.
@@ -3748,7 +3594,6 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             Permanently removes a directive from the memory bank.
 
             Args:
-                expected_revision: Optional Git commit the edit must be based on.
                 directive_id: The ID of the directive to delete
                 bank_id: Optional bank (defaults to session bank). Use for cross-bank operations.
             """
@@ -3757,7 +3602,7 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
                 bank_id=bank_id,
                 as_json=True,
                 action="deleting directive",
-                run=lambda target_bank: _run(target_bank, directive_id, expected_revision),
+                run=lambda target_bank: _run(target_bank, directive_id),
                 indent=None,
             )
 
@@ -3766,7 +3611,6 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
         @mcp.tool(annotations=_tool_annotations("delete_directive"))
         async def delete_directive(
             directive_id: str,
-            expected_revision: str | None = None,
         ) -> dict:
             """
             Delete a directive.
@@ -3774,7 +3618,6 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             Permanently removes a directive from this memory bank.
 
             Args:
-                expected_revision: Optional Git commit the edit must be based on.
                 directive_id: The ID of the directive to delete
             """
             return await _run_tool(
@@ -3782,7 +3625,7 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
                 bank_id=None,
                 as_json=False,
                 action="deleting directive",
-                run=lambda target_bank: _run(target_bank, directive_id, expected_revision),
+                run=lambda target_bank: _run(target_bank, directive_id),
                 indent=None,
             )
 

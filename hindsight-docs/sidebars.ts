@@ -160,11 +160,6 @@ const sidebars: SidebarsConfig = {
         },
         {
           type: 'doc',
-          id: 'developer/api/git-directives',
-          label: 'Git-backed Directives',
-        },
-        {
-          type: 'doc',
           id: 'developer/api/bank-templates',
           label: 'Bank Templates',
           customProps: { icon: 'lu-file-json' },

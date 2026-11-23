@@ -116,9 +116,6 @@ from .db.ops_postgresql import pg_search_vector_expr
 from .db.postgresql import PostgreSQLBackend
 from .db.postgresql import apply_session_settings as _apply_session_settings
 from .db_budget import budgeted_operation
-from .directive_git.models import Conflict as DirectiveRevisionConflict
-from .directive_git.publication import lock_unbound, lock_unmanaged, require_no_publication
-from .directive_git.service import manager_for_bank
 from .document_history import (
     DocumentEvent,
     DocumentEventKind,
@@ -8585,12 +8582,6 @@ class MemoryEngine(MemoryEngineInterface):
         async with acquire_with_retry(backend) as conn:
             await bank_aliases.refuse_alias_as_bank_id_on_conn(conn, bank_id)
 
-    @staticmethod
-    def _guard_directive_git_restore(bank_id: str) -> None:
-        # Whole-bank restore writes directive rows directly and may delete a partially restored bank on retry.
-        if manager_for_bank(bank_id) is not None:
-            raise DirectiveRevisionConflict("Choose an archive restore target without a Git rulebook binding")
-
     async def submit_bank_import_async(
         self,
         bank_id: str,
@@ -8635,7 +8626,6 @@ class MemoryEngine(MemoryEngineInterface):
                     CreateBankContext(bank_id=target, request_context=request_context)
                 )
             )
-        self._guard_directive_git_restore(target)
         # Only parse the documents when a validator will look at them: restore parses the
         # archive again when it runs, so without a gate this would be wasted work.
         if scope.data and self._operation_validator:
@@ -8704,8 +8694,6 @@ class MemoryEngine(MemoryEngineInterface):
                     CreateBankContext(bank_id=target_bank_id, request_context=request_context)
                 )
             )
-
-        self._guard_directive_git_restore(target_bank_id)
 
         task_payload: dict[str, Any] = {
             "target_bank_id": target_bank_id,
@@ -9401,7 +9389,6 @@ class MemoryEngine(MemoryEngineInterface):
         # Read the manifest up front so a bad archive fails fast and we know the target bank.
         bank_id = target_bank_id or read_bank_manifest(archive).source_bank_id
 
-        self._guard_directive_git_restore(bank_id)
         on_bank_created = None
         if operation_id:
             operations = fq_table("async_operations")
@@ -12594,8 +12581,6 @@ class MemoryEngine(MemoryEngineInterface):
                 bank_id=bank_id, operation=BankWriteOperation.DELETE_BANK, request_context=request_context
             )
             await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
-        if delete_bank_profile and not fact_type and manager_for_bank(bank_id) is not None:
-            raise DirectiveRevisionConflict("Retire the Git rulebook before deleting the bank")
         backend = await self._get_backend()
         invalidated_obs = 0
         result: dict[str, int] = {}
@@ -12621,8 +12606,6 @@ class MemoryEngine(MemoryEngineInterface):
                         bank_id,
                     )
                     bank_present = bank_row is not None
-                    if bank_present and delete_bank_profile and not fact_type:
-                        await require_no_publication(conn, bank_id)
                     from .memories import get_memories as _get_memories_for_delete
                     from .memories.base import BankContentCounts, TypedMemoryScope
 
@@ -12755,8 +12738,6 @@ class MemoryEngine(MemoryEngineInterface):
                                 bank_internal_id = str(internal_id)
                             result["bank_deleted"] = True
 
-                except DirectiveRevisionConflict:
-                    raise
                 except Exception as e:
                     # Name the type: a lock-wait timeout or cancellation has an empty str(), and
                     # the message alone then says nothing about what went wrong (#5805).
@@ -22498,7 +22479,6 @@ class MemoryEngine(MemoryEngineInterface):
         is_active: bool = True,
         tags: list[str] | None = None,
         request_context: "RequestContext",
-        expected_revision: str | None = None,
     ) -> dict[str, Any]:
         """Create a new directive.
 
@@ -22529,25 +22509,9 @@ class MemoryEngine(MemoryEngineInterface):
                 await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
         # An untagged directive steers everyone's reflect, so a restricted writer cannot make one.
         self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a directive")
-        manager = manager_for_bank(bank_id)
-        if manager is not None:
-            return await manager.create(
-                self,
-                bank_id,
-                name=name,
-                content=content,
-                tags=tags or [],
-                priority=priority,
-                is_active=is_active,
-                request_context=request_context,
-                expected_revision=expected_revision,
-            )
-        if expected_revision is not None:
-            raise DirectiveRevisionConflict("A Git revision can only be used for a Git-managed directive")
         backend = await self._get_backend()
 
-        async with acquire_with_retry(backend) as conn, conn.transaction():
-            await lock_unbound(conn, bank_id)
+        async with acquire_with_retry(backend) as conn:
             row = await conn.fetchrow(
                 f"""
                 INSERT INTO {fq_table("directives")}
@@ -22577,7 +22541,6 @@ class MemoryEngine(MemoryEngineInterface):
         is_active: bool | None = None,
         tags: list[str] | None = None,
         request_context: "RequestContext",
-        expected_revision: str | None = None,
     ) -> dict[str, Any] | None:
         """Update a directive.
 
@@ -22616,43 +22579,41 @@ class MemoryEngine(MemoryEngineInterface):
             return None
         if tags is not None:
             self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a directive")
-        changes: dict[str, Any] = {
-            field: value
-            for field, value in {
-                "name": name,
-                "content": content,
-                "priority": priority,
-                "is_active": is_active,
-                "tags": tags,
-            }.items()
-            if value is not None
-        }
-        manager = manager_for_bank(bank_id)
-        if manager is not None:
-            managed = await manager.update_if_managed(
-                self,
-                bank_id,
-                directive_id,
-                changes,
-                request_context=request_context,
-                expected_revision=expected_revision,
-            )
-            if managed is not None:
-                return managed
-        if expected_revision is not None:
-            raise DirectiveRevisionConflict("A Git revision can only be used for a Git-managed directive")
         backend = await self._get_backend()
-        # All column names originate from the explicit list above.
-        updates = ["updated_at = now()", *(f"{field} = ${i}" for i, field in enumerate(changes, 1))]
-        params = list(changes.values())
-        param_idx = len(params) + 1
+
+        # Build update query dynamically
+        updates = ["updated_at = now()"]
+        params: list[Any] = []
+        param_idx = 1
+
+        if name is not None:
+            updates.append(f"name = ${param_idx}")
+            params.append(name)
+            param_idx += 1
+
+        if content is not None:
+            updates.append(f"content = ${param_idx}")
+            params.append(content)
+            param_idx += 1
+
+        if priority is not None:
+            updates.append(f"priority = ${param_idx}")
+            params.append(priority)
+            param_idx += 1
+
+        if is_active is not None:
+            updates.append(f"is_active = ${param_idx}")
+            params.append(is_active)
+            param_idx += 1
+
+        if tags is not None:
+            updates.append(f"tags = ${param_idx}")
+            params.append(tags)
+            param_idx += 1
+
         params.extend([bank_id, directive_id])
 
-        async with acquire_with_retry(backend) as conn, conn.transaction():
-            if manager is not None:
-                await lock_unmanaged(conn, bank_id, directive_id, name)
-            else:
-                await lock_unbound(conn, bank_id)
+        async with acquire_with_retry(backend) as conn:
             row = await conn.fetchrow(
                 f"""
                 UPDATE {fq_table("directives")}
@@ -22671,7 +22632,6 @@ class MemoryEngine(MemoryEngineInterface):
         directive_id: str,
         *,
         request_context: "RequestContext",
-        expected_revision: str | None = None,
     ) -> bool:
         """Delete a directive.
 
@@ -22695,22 +22655,9 @@ class MemoryEngine(MemoryEngineInterface):
             await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
         if not await self._directive_writable(bank_id, directive_id, request_context):
             return False
-        manager = manager_for_bank(bank_id)
-        if manager is not None:
-            deleted = await manager.delete_if_managed(
-                self, bank_id, directive_id, request_context=request_context, expected_revision=expected_revision
-            )
-            if deleted is not None:
-                return deleted
-        if expected_revision is not None:
-            raise DirectiveRevisionConflict("A Git revision can only be used for a Git-managed directive")
         backend = await self._get_backend()
 
-        async with acquire_with_retry(backend) as conn, conn.transaction():
-            if manager is not None:
-                await lock_unmanaged(conn, bank_id, directive_id)
-            else:
-                await lock_unbound(conn, bank_id)
+        async with acquire_with_retry(backend) as conn:
             result = await conn.execute(
                 f"DELETE FROM {fq_table('directives')} WHERE bank_id = $1 AND id = $2",
                 bank_id,

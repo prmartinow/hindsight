@@ -515,20 +515,6 @@ Create a new directive in a bank.
 
 ---
 
-### update_directive
-
-Edit an existing directive by UUID. Supply at least one of `name`, `content`, `priority`, `is_active`, or `tags`. Omitted fields keep their current values. To clear tags, pass an empty list.
-
-For create, update, and delete on a Git-managed directive, `expected_revision` can pin the edit to the Git commit you last read. Refresh the revision if a concurrent edit has advanced the rulebook.
-
----
-
-### sync_directives
-
-Operators can expose this tool by including `sync_directives` in the server MCP allowlist. It inspects and publishes the bank's configured Git rulebook. A call with no arguments returns publication status. Supply `revision` to preview a committed snapshot. To publish, submit the same revision with `apply=true` and `expected_revision` set to the previously published revision.
-
----
-
 ### delete_directive
 
 Delete a directive by ID.
