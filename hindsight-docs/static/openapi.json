@@ -5747,6 +5747,218 @@
         }
       }
     },
+    "/v1/default/banks/{bank_id}/directive-git/sync": {
+      "post": {
+        "tags": [
+          "Directives"
+        ],
+        "summary": "Inspect, preview, or publish the configured Git revision",
+        "operationId": "sync_git_directives",
+        "parameters": [
+          {
+            "name": "bank_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bank Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitSyncRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/GitPublicationStatus"
+                    },
+                    {
+                      "$ref": "#/components/schemas/GitPublicationPlan"
+                    }
+                  ],
+                  "title": "Response Sync Git Directives"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/banks/{bank_id}/directive-git/adopt": {
+      "post": {
+        "tags": [
+          "Directives"
+        ],
+        "summary": "Enroll existing directives by UUID in a new Git publication",
+        "operationId": "adopt_git_directives",
+        "parameters": [
+          {
+            "name": "bank_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bank Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitAdoptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitPublicationPlan"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/banks/{bank_id}/directive-git/detach": {
+      "post": {
+        "tags": [
+          "Directives"
+        ],
+        "summary": "Release Git ownership while keeping the published directives",
+        "operationId": "detach_git_directives",
+        "parameters": [
+          {
+            "name": "bank_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bank Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitDetachRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitDetachResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/default/banks/{bank_id}/directives": {
       "get": {
         "tags": [
@@ -5899,6 +6111,22 @@
             }
           },
           {
+            "name": "X-Hindsight-Expected-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Hindsight-Expected-Revision"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -6043,6 +6271,22 @@
             }
           },
           {
+            "name": "X-Hindsight-Expected-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Hindsight-Expected-Revision"
+            }
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -6116,6 +6360,22 @@
             "schema": {
               "type": "string",
               "title": "Directive Id"
+            }
+          },
+          {
+            "name": "X-Hindsight-Expected-Revision",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Hindsight-Expected-Revision"
             }
           },
           {
@@ -15881,6 +16141,201 @@
             "550e8400-e29b-41d4-a716-446655440002"
           ]
         }
+      },
+      "GitAdoptRequest": {
+        "properties": {
+          "directive_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "maxItems": 4096,
+            "minItems": 1,
+            "title": "Directive Ids"
+          },
+          "history_parent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "History Parent"
+          },
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "directive_ids"
+        ],
+        "title": "GitAdoptRequest"
+      },
+      "GitDetachRequest": {
+        "properties": {
+          "expected_revision": {
+            "type": "string",
+            "title": "Expected Revision"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "title": "GitDetachRequest"
+      },
+      "GitDetachResponse": {
+        "properties": {
+          "revision": {
+            "type": "null",
+            "title": "Revision"
+          },
+          "detached_revision": {
+            "type": "string",
+            "title": "Detached Revision"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "detached_revision"
+        ],
+        "title": "GitDetachResponse"
+      },
+      "GitPublicationPlan": {
+        "properties": {
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "created": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Created"
+          },
+          "updated": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Updated"
+          },
+          "deleted": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Deleted"
+          },
+          "enrolled": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Enrolled"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "created",
+          "updated",
+          "deleted",
+          "enrolled"
+        ],
+        "title": "GitPublicationPlan"
+      },
+      "GitPublicationStatus": {
+        "properties": {
+          "head": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "pending": {
+            "type": "boolean",
+            "title": "Pending"
+          }
+        },
+        "type": "object",
+        "required": [
+          "head",
+          "revision",
+          "pending"
+        ],
+        "title": "GitPublicationStatus"
+      },
+      "GitSyncRequest": {
+        "properties": {
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "apply": {
+            "type": "boolean",
+            "title": "Apply",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "GitSyncRequest"
       },
       "GraphDataResponse": {
         "properties": {

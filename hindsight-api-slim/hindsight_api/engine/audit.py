@@ -45,6 +45,7 @@ DESTRUCTIVE_ACTIONS: frozenset[str] = frozenset(
         "clear_observations",
         "clear_memory_observations",
         "import_bank_template",
+        "sync_directives",
         "import_documents",
         "import_bank_transfer",
     }

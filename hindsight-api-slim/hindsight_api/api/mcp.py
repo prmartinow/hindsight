@@ -153,6 +153,7 @@ def create_mcp_server(memory: MemoryEngine, multi_bank: bool = True, knowledge_b
             "clear_mental_model",
             "list_directives",
             "create_directive",
+            "update_directive",
             "delete_directive",
             "list_memories",
             "get_memory",
@@ -185,7 +186,11 @@ def create_mcp_server(memory: MemoryEngine, multi_bank: bool = True, knowledge_b
     # Apply global mcp_enabled_tools filter (env-level allowlist)
     if global_config.mcp_enabled_tools is not None:
         allowed = frozenset(canonical_tool_names(global_config.mcp_enabled_tools))
-        base_tools = (base_tools if base_tools is not None else _ALL_TOOLS) & allowed
+        # Revision publication is opt-in even for servers exposing the stock default tool set.
+        selectable = base_tools if base_tools is not None else _ALL_TOOLS
+        if not knowledge_bank:
+            selectable = selectable | {"sync_directives"}
+        base_tools = selectable & allowed
 
     retain_description, recall_description = _build_mcp_tool_descriptions(
         getattr(global_config, "mcp_instructions", None)

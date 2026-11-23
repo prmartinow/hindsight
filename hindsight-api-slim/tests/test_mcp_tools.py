@@ -474,7 +474,9 @@ class TestMentalModelToolRegistration:
         assert "get_page_tree" in tools
         assert "create_page" in tools
         assert "delete_page_node" in tools
-        assert len(tools) == 49
+        assert "update_directive" in tools
+        assert "sync_directives" not in tools
+        assert len(tools) == 50
 
     def test_all_tools_have_nonempty_descriptions(self):
         """Every registered tool must expose a non-empty description.
@@ -1589,6 +1591,43 @@ class TestDirectiveTools:
         assert call_args.kwargs["name"] == "Test"
         assert call_args.kwargs["content"] == "Be concise"
         assert call_args.kwargs["priority"] == 5
+
+    @pytest.mark.parametrize("multi", [True, False])
+    async def test_update_directive(self, mock_memory, multi):
+        mock_memory.update_directive = AsyncMock(return_value={"id": "dir-1"})
+        mcp = _make_mcp_server(mock_memory, {"update_directive"}, include_bank_id=multi)
+        result = await _tools(mcp)["update_directive"].fn(
+            directive_id="dir-1", is_active=False, tags=[], expected_revision="base"
+        )
+        assert (json.loads(result) if multi else result) == {"id": "dir-1"}
+        args, fields = mock_memory.update_directive.await_args
+        assert args == ("test-bank", "dir-1")
+        assert fields["tags"] == [] and fields["is_active"] is False and fields["expected_revision"] == "base"
+
+    @pytest.mark.parametrize("multi", [True, False])
+    async def test_pending_directive_edit_returns_retry_revision(self, mock_memory, multi):
+        from hindsight_api.engine.directive_git.models import PublicationPending
+
+        revision = "a" * 40
+        mock_memory.update_directive = AsyncMock(side_effect=PublicationPending(revision))
+        mcp = _make_mcp_server(mock_memory, {"update_directive"}, include_bank_id=multi)
+        result = await _tools(mcp)["update_directive"].fn(directive_id="dir-1", is_active=False)
+        result = json.loads(result) if multi else result
+        assert result["state"] == "pending" and result["revision"] == revision and result["error"]
+
+    async def test_sync_directives_requires_selection_and_explicit_apply(self, mock_memory, monkeypatch):
+        import hindsight_api.mcp_tools as tools_module
+
+        mock_sync = AsyncMock(return_value={"revision": "current"})
+        monkeypatch.setattr(tools_module, "sync_directive_revision", mock_sync)
+        mcp = _make_mcp_server(mock_memory, {"sync_directives"}, include_bank_id=False)
+        result = await _tools(mcp)["sync_directives"].fn(revision="pending", expected_revision="current")
+        assert result["revision"] == "current"
+        args, fields = mock_sync.await_args
+        assert args == (mock_memory, "test-bank")
+        assert fields["apply"] is False and fields["revision"] == "pending"
+        assert "sync_directives" not in _tools(_make_mcp_server(mock_memory, {"list_directives"}))
+        assert not ({"update_directive", "sync_directives"} & _tools(_make_mcp_server(mock_memory, set())).keys())
 
     async def test_delete_directive(self, mock_memory):
         mcp = _make_mcp_server(mock_memory, {"delete_directive"}, include_bank_id=True)

@@ -846,6 +846,7 @@ ENV_MCP_AUTH_TOKEN = "HINDSIGHT_API_MCP_AUTH_TOKEN"
 ENV_ENABLE_BANK_CONFIG_API = "HINDSIGHT_API_ENABLE_BANK_CONFIG_API"
 ENV_ENABLE_BANK_LLM_HEALTH = "HINDSIGHT_API_ENABLE_BANK_LLM_HEALTH"
 ENV_ENABLE_DRY_RUN_EXTRACT = "HINDSIGHT_API_ENABLE_DRY_RUN_EXTRACT"
+ENV_DIRECTIVE_GIT_REPOSITORIES = "HINDSIGHT_API_DIRECTIVE_GIT_REPOSITORIES"
 ENV_DEFAULT_BANK_TEMPLATE = "HINDSIGHT_API_DEFAULT_BANK_TEMPLATE"
 ENV_GRAPH_RETRIEVER = "HINDSIGHT_API_GRAPH_RETRIEVER"
 ENV_RECALL_MAX_CONCURRENT = "HINDSIGHT_API_RECALL_MAX_CONCURRENT"
@@ -3498,6 +3499,30 @@ def _parse_reranker_members() -> list[RerankerMemberConfig]:
     return members
 
 
+def _parse_directive_git_repositories(raw: str | None) -> dict[str, dict[str, str]]:
+    """Only an operator may bind a repository to a particular tenant schema and bank."""
+    from pathlib import Path
+
+    if not raw:
+        return {}
+    bindings = json.loads(raw)
+    if not isinstance(bindings, dict):
+        raise ValueError(f"{ENV_DIRECTIVE_GIT_REPOSITORIES} requires a schema-to-bank mapping")
+    paths = set()
+    for schema, banks in bindings.items():
+        if not schema or not isinstance(banks, dict):
+            raise ValueError("Expected a schema mapped to bank repository paths")
+        for bank, path in banks.items():
+            if not bank or not isinstance(path, str) or not Path(path).is_absolute():
+                raise ValueError("Each directive Git binding requires a bank and absolute repository path")
+            canonical = str(Path(path).resolve())
+            if canonical in paths:
+                raise ValueError("A directive repository may belong to only one schema and bank")
+            paths.add(canonical)
+            banks[bank] = canonical
+    return bindings
+
+
 def _parse_default_bank_template(raw: str | None) -> dict | None:
     """
     Parse HINDSIGHT_API_DEFAULT_BANK_TEMPLATE as JSON.
@@ -4026,6 +4051,7 @@ class HindsightConfig:
     enable_dry_run_extract: bool
     # Default bank template (static, server-level only). When set, the manifest is applied
     # to every newly-created bank, overriding the env/config defaults for any fields it sets.
+    directive_git_repositories: dict[str, dict[str, str]]
     default_bank_template: dict | None
 
     # Tokenization (server-level; see ENV_TOKENIZER_ENCODING)
@@ -5797,6 +5823,7 @@ class HindsightConfig:
             == "true",
             enable_dry_run_extract=os.getenv(ENV_ENABLE_DRY_RUN_EXTRACT, str(DEFAULT_ENABLE_DRY_RUN_EXTRACT)).lower()
             == "true",
+            directive_git_repositories=_parse_directive_git_repositories(os.getenv(ENV_DIRECTIVE_GIT_REPOSITORIES)),
             default_bank_template=_parse_default_bank_template(os.getenv(ENV_DEFAULT_BANK_TEMPLATE)),
             # Tokenization
             tokenizer_encoding=os.getenv(ENV_TOKENIZER_ENCODING, DEFAULT_TOKENIZER_ENCODING),

@@ -378,7 +378,8 @@ def test_registered_tool_sets_match_the_allowlists(mock_memory):
     multi = set(_tools(create_mcp_server(mock_memory, multi_bank=True)))
     single = set(_tools(create_mcp_server(mock_memory, multi_bank=False)))
 
-    assert multi == set(_ALL_TOOLS)
+    # Publishing a Git revision requires a server-level opt-in.
+    assert multi == set(_ALL_TOOLS) - {"sync_directives"}
     # Single-bank mode drops exactly the tools that operate across banks, and the knowledge-bank
     # tools, which a knowledge bank's own endpoint serves.
     assert multi - single == {"list_banks", "create_bank", "get_bank_stats"} | _KNOWLEDGE_TOOLS
@@ -455,6 +456,19 @@ def test_global_mcp_allowlist_with_only_extension_tools_registers_no_builtins(mo
     config = MagicMock(mcp_enabled_tools=["extension_tool"])
     monkeypatch.setattr(mcp, "_get_raw_config", lambda: config)
     assert not _tools(mcp.create_mcp_server(mock_memory, multi_bank=False))
+
+
+def test_explicit_directive_sync_allowlist_excludes_the_knowledge_bank_endpoint(mock_memory, monkeypatch):
+    from hindsight_api.api import mcp
+
+    config = MagicMock(mcp_enabled_tools=["sync_directives", "search_knowledge_bank"])
+    monkeypatch.setattr(mcp, "_get_raw_config", lambda: config)
+    multi = _tools(mcp.create_mcp_server(mock_memory))
+    memory = _tools(mcp.create_mcp_server(mock_memory, multi_bank=False))
+    knowledge = _tools(mcp.create_mcp_server(mock_memory, multi_bank=False, knowledge_bank=True))
+    assert "sync_directives" in multi
+    assert set(memory) == {"sync_directives"}
+    assert set(knowledge) == {"search_knowledge_bank"}
 
 
 def test_mcp_instructions_append_to_retain_and_recall_descriptions(mock_memory):

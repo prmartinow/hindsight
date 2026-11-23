@@ -32,6 +32,7 @@ from .. import bank_aliases
 from ..causal_links import CANONICAL_CAUSAL_LINK_TYPE, LEGACY_CAUSAL_LINK_TYPES
 from ..db.ops_postgresql import pg_search_vector_expr
 from ..db_utils import acquire_with_retry
+from ..directive_git.publication import lock_unbound
 from ..retain import (
     bank_utils,
     chunk_storage,
@@ -1488,12 +1489,17 @@ async def _restore_bank(
             )
 
         if restoring.bank_config:
-            result.directives_imported = await _restore_rows(
-                conn,
-                "directives",
-                parsed.bank_rows.get("directives", []),
-                bank_rows_json_encoding=bank_rows_json_encoding,
-            )
+            if directive_rows := parsed.bank_rows.get("directives", []):
+                # The new bank row became visible before this phase. An operator may
+                # have enrolled it in the intervening time, even on another server.
+                async with conn.transaction():
+                    await lock_unbound(conn, bank_id)
+                    result.directives_imported = await _restore_rows(
+                        conn,
+                        "directives",
+                        directive_rows,
+                        bank_rows_json_encoding=bank_rows_json_encoding,
+                    )
             result.webhooks_imported = await _restore_rows(
                 conn,
                 "webhooks",
