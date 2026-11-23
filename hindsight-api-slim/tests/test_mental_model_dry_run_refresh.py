@@ -15,7 +15,6 @@ so what is under test is the refresh's own branching and reporting, not model
 behaviour.
 """
 
-from hindsight_api.engine.response_models import LLMCallResult, TokenUsage
 import uuid
 from typing import Any
 
@@ -24,8 +23,8 @@ import pytest
 import pytest_asyncio
 
 from hindsight_api import MemoryEngine, RequestContext
-from hindsight_api.engine.response_models import ReflectResult
-from tests.conftest import stub_refresh_has_sources
+from hindsight_api.engine.memory_engine import _MentalModelScopeWatermark
+from hindsight_api.engine.response_models import LLMCallResult, ReflectResult, TokenUsage
 
 
 def _reflect_result(
@@ -82,7 +81,14 @@ def patch_reflect(monkeypatch):
             return _reflect_result(text, facts=facts, retrieved=retrieved)
 
         monkeypatch.setattr(memory, "reflect_async", fake_reflect_async)
-        stub_refresh_has_sources(monkeypatch, memory)
+
+        # These tests supply synthetic retrieval results for a positive memory scope.
+        # The strict refresh policy excludes sibling models as evidence.
+        async def scoped_watermark(bank_id, mental_model_id, tag_filtering, fact_types, refresh_cutoff, created_after):
+            assert tag_filtering.is_scoped
+            return _MentalModelScopeWatermark(newest_in_scope=refresh_cutoff, watermark=refresh_cutoff)
+
+        monkeypatch.setattr(memory, "_mental_model_scope_watermark", scoped_watermark)
         return calls
 
     return _install
@@ -126,6 +132,7 @@ class TestDryRunPersistsNothing:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal content.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -156,6 +163,7 @@ class TestDryRunPersistsNothing:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice leads backend.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -198,6 +206,7 @@ class TestDryRunExplainsTheModeDecision:
             name="Team Info",
             source_query="Tell me about the team",
             content="Generating content...",
+            tags=["team-a"],
             trigger={"mode": "delta"},
             request_context=request_context,
         )
@@ -220,6 +229,7 @@ class TestDryRunExplainsTheModeDecision:
             name="Team Info",
             source_query="Tell me about the team",
             content="",
+            tags=["team-a"],
             trigger={"mode": "delta"},
             request_context=request_context,
         )
@@ -247,6 +257,7 @@ class TestDryRunExplainsTheModeDecision:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nEstablished content.",
+            tags=["team-a"],
             trigger={"mode": "delta"},
             request_context=request_context,
         )
@@ -290,6 +301,7 @@ class TestDryRunExplainsTheModeDecision:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nYears of accumulated detail.",
+            tags=["team-a"],
             trigger={"mode": "delta"},
             request_context=request_context,
         )
@@ -335,6 +347,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -372,6 +385,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -393,6 +407,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -420,6 +435,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nEstablished content.",
+            tags=["team-a"],
             trigger={"mode": "delta"},
             request_context=request_context,
         )
@@ -458,6 +474,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -483,6 +500,7 @@ class TestDryRunReportsRetrievalHealth:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nStill here.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -527,11 +545,10 @@ class TestDryRunScopeResolution:
 
         await memory.delete_bank(bank_id, request_context=request_context)
 
-    async def test_trigger_tags_match_widens_the_resolved_scope(
+    async def test_trigger_any_resolves_to_strict_disjunction(
         self, memory: MemoryEngine, request_context: RequestContext, patch_reflect
     ):
-        """The model's own trigger is the only thing that changes the scope — the
-        dry run reports what that resolves to, it cannot alter it."""
+        """The dry run resolves the stored trigger to a disjunction over tagged sources."""
         bank_id = await _make_bank(memory, request_context, "test-dryrun-scopeany")
         mm = await memory.create_mental_model(
             bank_id=bank_id,
@@ -546,8 +563,10 @@ class TestDryRunScopeResolution:
         reflect_calls = patch_reflect(memory, text="# Team\n\nRewritten.")
         result = await memory.dry_run_refresh_mental_model(bank_id, mm["id"], request_context=request_context)
 
-        assert result.scope.tags_match == "any"
-        assert reflect_calls[0]["tags_match"] == "any", "the resolved scope must reach reflect, not just the report"
+        assert result.scope.tags_match == "any_strict"
+        assert reflect_calls[0]["tags_match"] == "any_strict", (
+            "the resolved scope must reach reflect, not just the report"
+        )
 
         await memory.delete_bank(bank_id, request_context=request_context)
 
@@ -564,6 +583,7 @@ class TestKeepTrace:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -586,6 +606,7 @@ class TestKeepTrace:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full", "keep_trace": True},
             request_context=request_context,
         )
@@ -647,6 +668,7 @@ class TestKeepTrace:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nv1.",
+            tags=["team-a"],
             trigger={"mode": "full", "keep_trace": True},
             request_context=request_context,
         )
@@ -685,6 +707,7 @@ class TestKeepTrace:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nv1.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -714,6 +737,7 @@ class TestKeepTrace:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nStill here.",
+            tags=["team-a"],
             trigger={"mode": "full", "keep_trace": True},
             request_context=request_context,
         )
@@ -760,6 +784,7 @@ class TestDryRunRefreshEndpoint:
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal.",
+            tags=["team-a"],
             trigger={"mode": "full"},
             request_context=request_context,
         )
@@ -807,7 +832,7 @@ class TestDryRunRefreshEndpoint:
 
         assert response.status_code == 200, response.text
         # The scope comes from the model's own trigger, never from the request.
-        assert response.json()["scope"]["tags_match"] == "any"
+        assert response.json()["scope"]["tags_match"] == "any_strict"
 
         await memory.delete_bank(bank_id, request_context=request_context)
 
