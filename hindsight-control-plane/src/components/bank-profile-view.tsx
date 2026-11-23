@@ -5,7 +5,7 @@ import { useTranslations } from "next-intl";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useRouter } from "next/navigation";
-import { client } from "@/lib/api";
+import { client, type Directive } from "@/lib/api";
 import { useBank } from "@/lib/bank-context";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
@@ -80,18 +80,6 @@ interface BankStats {
   total_observations: number;
 }
 
-interface Directive {
-  id: string;
-  bank_id: string;
-  name: string;
-  content: string;
-  priority: number;
-  is_active: boolean;
-  tags: string[];
-  created_at: string;
-  updated_at: string;
-}
-
 const TRAIT_KEYS: Array<keyof DispositionTraits> = ["skepticism", "literalism", "empathy"];
 
 const TRAIT_SHORT_LABELS: Record<keyof DispositionTraits, string> = {
@@ -144,10 +132,7 @@ export function BankProfileView({ hideReflectFields = false }: { hideReflectFiel
   // Directive state
   const [showCreateDirective, setShowCreateDirective] = useState(false);
   const [selectedDirective, setSelectedDirective] = useState<Directive | null>(null);
-  const [directiveDeleteTarget, setDirectiveDeleteTarget] = useState<{
-    id: string;
-    name: string;
-  } | null>(null);
+  const [directiveDeleteTarget, setDirectiveDeleteTarget] = useState<Directive | null>(null);
   const [deletingDirective, setDeletingDirective] = useState(false);
 
   // Delete state
@@ -235,7 +220,7 @@ export function BankProfileView({ hideReflectFields = false }: { hideReflectFiel
 
     setDeletingDirective(true);
     try {
-      await client.deleteDirective(currentBank, directiveDeleteTarget.id);
+      await client.deleteDirective(currentBank, directiveDeleteTarget.id, directiveDeleteTarget.revision);
       setDirectives((prev) => prev.filter((d) => d.id !== directiveDeleteTarget.id));
       if (selectedDirective?.id === directiveDeleteTarget.id) setSelectedDirective(null);
       setDirectiveDeleteTarget(null);
@@ -555,9 +540,13 @@ export function BankProfileView({ hideReflectFields = false }: { hideReflectFiel
             <AlertDialogTitle>{t("deleteDirectiveTitle")}</AlertDialogTitle>
             <AlertDialogDescription>
               {t("deleteDirectiveConfirm", { name: `"${directiveDeleteTarget?.name ?? ""}"` })}
-              <br />
-              <br />
-              <span className="text-destructive font-semibold">{t("deleteDirectiveWarning")}</span>
+              {directiveDeleteTarget?.revision == null && (
+                <>
+                  <br />
+                  <br />
+                  <span className="text-destructive font-semibold">{t("deleteDirectiveWarning")}</span>
+                </>
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-row justify-end space-x-2">
@@ -579,12 +568,7 @@ export function BankProfileView({ hideReflectFields = false }: { hideReflectFiel
         <DirectiveDetailPanel
           directive={selectedDirective}
           onClose={() => setSelectedDirective(null)}
-          onDelete={() =>
-            setDirectiveDeleteTarget({
-              id: selectedDirective.id,
-              name: selectedDirective.name,
-            })
-          }
+          onDelete={() => setDirectiveDeleteTarget(selectedDirective)}
           onUpdated={(updated) => {
             setDirectives((prev) => prev.map((d) => (d.id === updated.id ? updated : d)));
             setSelectedDirective(updated);
@@ -838,6 +822,7 @@ function DirectiveFormDialog({
         onCreated?.(result);
       } else if (directive) {
         const result = await client.updateDirective(currentBank, directive.id, {
+          expected_revision: directive.revision ?? undefined,
           name: form.name.trim(),
           content: form.content.trim(),
           tags: tags,

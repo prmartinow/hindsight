@@ -474,7 +474,7 @@ class TestMentalModelToolRegistration:
         assert "get_page_tree" in tools
         assert "create_page" in tools
         assert "delete_page_node" in tools
-        assert len(tools) == 49
+        assert len(tools) == 52
 
     def test_all_tools_have_nonempty_descriptions(self):
         """Every registered tool must expose a non-empty description.
@@ -1589,6 +1589,40 @@ class TestDirectiveTools:
         assert call_args.kwargs["name"] == "Test"
         assert call_args.kwargs["content"] == "Be concise"
         assert call_args.kwargs["priority"] == 5
+
+    @pytest.mark.parametrize("multi_bank", [True, False])
+    async def test_conditional_rule_edit_and_restore(self, mock_memory, multi_bank):
+        tools = {"update_directive", "list_directive_revisions", "revert_directive", "delete_directive"}
+        registered = _tools(_make_mcp_server(mock_memory, tools, include_bank_id=multi_bank))
+        target = {"bank_id": "other-bank"} if multi_bank else {}
+        mock_memory.update_directive = AsyncMock(return_value={"revision": 2})
+        mock_memory.list_directive_revisions = AsyncMock(return_value=[{"revision": 2}, {"revision": 1}])
+        mock_memory.revert_directive = AsyncMock(return_value={"revision": 3, "restored_from_revision": 1})
+        for name, arguments, expected in (
+            ("update_directive", {"content": "New rule", "expected_revision": 1}, {"revision": 2}),
+            ("list_directive_revisions", {"limit": 2}, {"items": [{"revision": 2}, {"revision": 1}]}),
+            ("revert_directive", {"revision": 1, "expected_revision": 2}, {"revision": 3, "restored_from_revision": 1}),
+            ("delete_directive", {"expected_revision": 3}, {"status": "deleted", "directive_id": "dir-1"}),
+        ):
+            result = await registered[name].fn(directive_id="dir-1", **arguments, **target)
+            assert (json.loads(result) if multi_bank else result) == expected
+            call = getattr(mock_memory, name).await_args
+            assert call.args == (target.get("bank_id", "test-bank"), "dir-1")
+            assert arguments.items() <= call.kwargs.items()
+            assert isinstance(call.kwargs["request_context"], RequestContext)
+
+    async def test_stale_rule_edit_and_missing_revert_are_reported(self, mock_memory):
+        from hindsight_api.extensions import OperationValidationError
+
+        mock_memory.update_directive = AsyncMock(
+            side_effect=OperationValidationError("stale revision", status_code=409)
+        )
+        mock_memory.revert_directive = AsyncMock(return_value=None)
+        tools = _tools(_make_mcp_server(mock_memory, {"update_directive", "revert_directive"}, include_bank_id=False))
+        stale = await tools["update_directive"].fn(directive_id="dir-1", expected_revision=1, content="new")
+        assert "stale revision" in stale["error"]
+        missing = await tools["revert_directive"].fn(directive_id="dir-1", expected_revision=2, revision=1)
+        assert "not found" in missing["error"]
 
     async def test_delete_directive(self, mock_memory):
         mcp = _make_mcp_server(mock_memory, {"delete_directive"}, include_bank_id=True)

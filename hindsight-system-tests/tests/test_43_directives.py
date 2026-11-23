@@ -15,6 +15,7 @@ suite's business.
 
 from __future__ import annotations
 
+import httpx
 import pytest
 
 from hindsight_system_tests import reflect_loop
@@ -98,3 +99,38 @@ async def test_a_deleted_directive_stops_being_sent(client, llm, bank_with_facts
     await client.areflect(bank_id=bank_with_facts, query=QUERY)
 
     assert not any(DIRECTIVE in prompt for prompt in llm.prompts_for("reflect"))
+
+
+async def test_conflicting_edit_and_restore_after_deletion(hindsight_server, client, bank_id):
+    await client.acreate_bank(bank_id=bank_id, name="Directive revisions")
+    async with httpx.AsyncClient(base_url=hindsight_server.url) as http:
+        collection = f"/v1/default/banks/{bank_id}/directives"
+        created = await http.post(
+            collection, json={"name": "units", "content": "Use metric units.", "tags": ["science"]}
+        )
+        created.raise_for_status()
+        row = created.json()
+        url = f"{collection}/{row['id']}"
+        original = row["revision"]
+        edit = {"content": "Use SI units.", "expected_revision": original}
+        updated = await http.patch(url, json=edit)
+        updated.raise_for_status()
+        newest = updated.json()["revision"]
+        assert newest > original
+        assert (await http.patch(url, json=edit)).status_code == 409
+
+        deleted = await http.delete(url, params={"expected_revision": newest})
+        deleted.raise_for_status()
+        assert (await http.get(url)).status_code == 404
+        history = await http.get(f"{url}/revisions")
+        history.raise_for_status()
+        latest, changed, first = history.json()
+        assert latest["deleted"] and changed["snapshot"]["content"] == "Use SI units."
+        assert first["revision"] == original and first["snapshot"]["content"] == "Use metric units."
+
+        restore = await http.post(f"{url}/revert", json={"revision": original, "expected_revision": latest["revision"]})
+        restore.raise_for_status()
+        assert restore.json()["restored_from_revision"] == original
+        current = (await http.get(url)).json()
+        assert current["id"] == row["id"] and current["revision"] == restore.json()["revision"]
+        assert current["content"] == "Use metric units." and current["tags"] == ["science"]

@@ -408,6 +408,16 @@ def test_global_mcp_enabled_tools_filter_restricts_registered_tools(mock_memory)
     assert "list_mental_models" not in tools
 
 
+def test_knowledge_bank_does_not_register_memory_bank_revision_tools(mock_memory):
+    from unittest.mock import patch
+
+    from hindsight_api.api.mcp import create_mcp_server
+
+    with patch("hindsight_api.api.mcp._get_raw_config") as config:
+        config.return_value.mcp_enabled_tools = ["list_directive_revisions", "revert_directive"]
+        assert not _tools(create_mcp_server(mock_memory, multi_bank=False, knowledge_bank=True))
+
+
 def test_global_mcp_enabled_tools_none_exposes_all_tools(mock_memory):
     """Test that mcp_enabled_tools=None (default) exposes all tools."""
     from unittest.mock import MagicMock, patch

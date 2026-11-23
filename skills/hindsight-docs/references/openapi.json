@@ -6080,6 +6080,9 @@
               }
             }
           },
+          "409": {
+            "description": "The current directive revision has changed."
+          },
           "422": {
             "description": "Validation Error",
             "content": {
@@ -6119,6 +6122,25 @@
             }
           },
           {
+            "name": "expected_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Reject deletion if this revision is stale",
+              "title": "Expected Revision"
+            },
+            "description": "Reject deletion if this revision is stale"
+          },
+          {
             "name": "authorization",
             "in": "header",
             "required": false,
@@ -6143,6 +6165,185 @@
                 "schema": {}
               }
             }
+          },
+          "409": {
+            "description": "The current directive revision has changed."
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/banks/{bank_id}/directives/{directive_id}/revisions": {
+      "get": {
+        "tags": [
+          "Directives"
+        ],
+        "summary": "List directive revisions",
+        "description": "Read a directive's recorded states newest first, including deletions. Requires bank-wide access.",
+        "operationId": "list_directive_revisions",
+        "parameters": [
+          {
+            "name": "bank_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bank Id"
+            }
+          },
+          {
+            "name": "directive_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Directive Id"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 1000,
+              "minimum": 1,
+              "default": 100,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DirectiveRevisionResponse"
+                  },
+                  "title": "Response List Directive Revisions"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/default/banks/{bank_id}/directives/{directive_id}/revert": {
+      "post": {
+        "tags": [
+          "Directives"
+        ],
+        "summary": "Revert a directive",
+        "description": "Record a new revision restoring the selected state. Requires bank-wide access.",
+        "operationId": "revert_directive",
+        "parameters": [
+          {
+            "name": "bank_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Bank Id"
+            }
+          },
+          {
+            "name": "directive_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Directive Id"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevertDirectiveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DirectiveRevisionResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The current directive revision has changed."
           },
           "422": {
             "description": "Validation Error",
@@ -14460,6 +14661,18 @@
               }
             ],
             "title": "Updated At"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Revision",
+            "description": "Current per-directive revision on PostgreSQL"
           }
         },
         "type": "object",
@@ -14471,6 +14684,73 @@
         ],
         "title": "DirectiveResponse",
         "description": "Response model for a directive."
+      },
+      "DirectiveRevisionResponse": {
+        "properties": {
+          "bank_id": {
+            "type": "string",
+            "title": "Bank Id"
+          },
+          "directive_id": {
+            "type": "string",
+            "title": "Directive Id"
+          },
+          "revision": {
+            "type": "integer",
+            "title": "Revision"
+          },
+          "restored_from_revision": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restored From Revision"
+          },
+          "operation": {
+            "type": "string",
+            "title": "Operation"
+          },
+          "deleted": {
+            "type": "boolean",
+            "title": "Deleted"
+          },
+          "snapshot": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Snapshot"
+          },
+          "actor_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Id"
+          },
+          "recorded_at": {
+            "type": "string",
+            "title": "Recorded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "bank_id",
+          "directive_id",
+          "revision",
+          "operation",
+          "deleted",
+          "snapshot",
+          "recorded_at"
+        ],
+        "title": "DirectiveRevisionResponse",
+        "description": "A recorded state of one directive, including the last values on deletion."
       },
       "DispositionTraits": {
         "properties": {
@@ -23826,6 +24106,28 @@
           "success": true
         }
       },
+      "RevertDirectiveRequest": {
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Revision",
+            "description": "Historical revision to restore"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "description": "Current revision the caller has reviewed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision",
+          "expected_revision"
+        ],
+        "title": "RevertDirectiveRequest"
+      },
       "RunSettingModel": {
         "properties": {
           "field": {
@@ -24340,6 +24642,19 @@
       },
       "UpdateDirectiveRequest": {
         "properties": {
+          "expected_revision": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision",
+            "description": "Reject the edit if this revision is stale"
+          },
           "name": {
             "anyOf": [
               {

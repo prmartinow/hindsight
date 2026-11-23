@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "Editar Modelo Mental",
     "actionDryRunRefreshMentalModel": "Testar Atualização do Modelo Mental",
     "actionClearMentalModel": "Esvaziar Modelo Mental",
+    "actionRevertDirective": "Restaurar revisão da diretiva",
     "actionUpdateDirective": "Atualizar Diretiva",
     "actionUpdateBankConfig": "Atualizar Configuração do Banco",
     "actionResetBankConfig": "Redefinir Configuração do Banco",
@@ -2200,6 +2201,7 @@
         "fetch": "Falha ao buscar observação"
       },
       "directives": {
+        "staleRevision": "A diretiva foi alterada. Recarregue e confira a versão atual antes de tentar novamente.",
         "list": "Falha ao listar diretivas",
         "fetch": "Falha ao buscar diretiva",
         "create": "Falha ao criar diretiva",

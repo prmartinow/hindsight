@@ -1893,6 +1893,7 @@ def _check_directive_priority(priority: int) -> None:
 #: timestamp — the two must not compare equal or a reconcile would skip a genuinely missing entry.
 _MISSING_FROM_INDEX = object()
 
+from . import directive_revisions
 from .db_utils import acquire_with_retry, retry_with_backoff, use_or_acquire
 from .storage import bank_storage_prefix
 
@@ -4047,17 +4048,18 @@ class MemoryEngine(MemoryEngineInterface):
         everyone (as in reflect); tagged ones only inside the caller's scope."""
         return not tags or tags_satisfy_groups(tags, tag_scope)
 
-    async def _directive_writable(self, bank_id: str, directive_id: str, request_context: "RequestContext") -> bool:
+    async def _directive_writable(
+        self, bank_id: str, directive_id: str, request_context: "RequestContext", conn: Any
+    ) -> bool:
         """False when the caller cannot see the directive (missing reads the same way); 403 when it
         can see it but may not write its tags. True with no scope at all, without a read."""
         tag_scope = await self._tag_scope(bank_id, request_context)
         write_scope = await self._write_tag_scope(bank_id, request_context)
         if not tag_scope and write_scope is None:
             return True
-        async with acquire_with_retry(await self._get_backend()) as conn:
-            row = await conn.fetchrow(
-                f"SELECT tags FROM {fq_table('directives')} WHERE bank_id = $1 AND id = $2", bank_id, directive_id
-            )
+        row = await conn.fetchrow(
+            f"SELECT tags FROM {fq_table('directives')} WHERE bank_id = $1 AND id = $2", bank_id, directive_id
+        )
         if row is None or not self._directive_visible(row["tags"], tag_scope):
             return False
         self._refuse_unwritable(row["tags"], write_scope, f"directive '{directive_id}'")
@@ -22397,7 +22399,7 @@ class MemoryEngine(MemoryEngineInterface):
             # directive twice and miss another.
             rows = await conn.fetch(
                 f"""
-                SELECT id, bank_id, name, content, priority, is_active, tags, created_at, updated_at
+                SELECT {directive_revisions.columns()}
                 FROM {fq_table("directives")}
                 WHERE {where_clause}
                 ORDER BY priority DESC, created_at DESC, id DESC
@@ -22440,7 +22442,7 @@ class MemoryEngine(MemoryEngineInterface):
         async with acquire_with_retry(backend) as conn:
             row = await conn.fetchrow(
                 f"""
-                SELECT id, bank_id, name, content, priority, is_active, tags, created_at, updated_at
+                SELECT {directive_revisions.columns()}
                 FROM {fq_table("directives")}
                 WHERE bank_id = $1 AND id = $2
                 """,
@@ -22494,13 +22496,13 @@ class MemoryEngine(MemoryEngineInterface):
         self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a directive")
         backend = await self._get_backend()
 
-        async with acquire_with_retry(backend) as conn:
+        async with directive_revisions.writing(backend, bank_id, None, request_context) as conn:
             row = await conn.fetchrow(
                 f"""
                 INSERT INTO {fq_table("directives")}
                 (bank_id, name, content, priority, is_active, tags)
                 VALUES ($1, $2, $3, $4, $5, $6)
-                RETURNING id, bank_id, name, content, priority, is_active, tags, created_at, updated_at
+                RETURNING {directive_revisions.columns()}
                 """,
                 bank_id,
                 name,
@@ -22523,6 +22525,7 @@ class MemoryEngine(MemoryEngineInterface):
         priority: int | None = None,
         is_active: bool | None = None,
         tags: list[str] | None = None,
+        expected_revision: int | None = None,
         request_context: "RequestContext",
     ) -> dict[str, Any] | None:
         """Update a directive.
@@ -22558,8 +22561,6 @@ class MemoryEngine(MemoryEngineInterface):
                     bank_id=bank_id, operation=BankWriteOperation.UPDATE_DIRECTIVE, request_context=request_context
                 )
                 await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
-        if not await self._directive_writable(bank_id, directive_id, request_context):
-            return None
         if tags is not None:
             self._refuse_unwritable(tags, await self._write_tag_scope(bank_id, request_context), "a directive")
         backend = await self._get_backend()
@@ -22596,13 +22597,18 @@ class MemoryEngine(MemoryEngineInterface):
 
         params.extend([bank_id, directive_id])
 
-        async with acquire_with_retry(backend) as conn:
+        async with directive_revisions.writing(
+            backend, bank_id, directive_id, request_context, guarded=expected_revision is not None
+        ) as conn:
+            if not await self._directive_writable(bank_id, directive_id, request_context, conn):
+                return None
+            await directive_revisions.check_expected(conn, bank_id, directive_id, expected_revision)
             row = await conn.fetchrow(
                 f"""
                 UPDATE {fq_table("directives")}
                 SET {", ".join(updates)}
                 WHERE bank_id = ${param_idx} AND id = ${param_idx + 1}
-                RETURNING id, bank_id, name, content, priority, is_active, tags, created_at, updated_at
+                RETURNING {directive_revisions.columns()}
                 """,
                 *params,
             )
@@ -22614,6 +22620,7 @@ class MemoryEngine(MemoryEngineInterface):
         bank_id: str,
         directive_id: str,
         *,
+        expected_revision: int | None = None,
         request_context: "RequestContext",
     ) -> bool:
         """Delete a directive.
@@ -22636,11 +22643,14 @@ class MemoryEngine(MemoryEngineInterface):
                 bank_id=bank_id, operation=BankWriteOperation.DELETE_DIRECTIVE, request_context=request_context
             )
             await self._validate_operation(self._operation_validator.validate_bank_write(ctx))
-        if not await self._directive_writable(bank_id, directive_id, request_context):
-            return False
         backend = await self._get_backend()
 
-        async with acquire_with_retry(backend) as conn:
+        async with directive_revisions.writing(
+            backend, bank_id, directive_id, request_context, guarded=expected_revision is not None
+        ) as conn:
+            if not await self._directive_writable(bank_id, directive_id, request_context, conn):
+                return False
+            await directive_revisions.check_expected(conn, bank_id, directive_id, expected_revision)
             result = await conn.execute(
                 f"DELETE FROM {fq_table('directives')} WHERE bank_id = $1 AND id = $2",
                 bank_id,
@@ -22653,6 +22663,7 @@ class MemoryEngine(MemoryEngineInterface):
         """Convert a database row to a directive dict."""
         return {
             "id": str(row["id"]),
+            **({"revision": row["revision"]} if not _is_oracle() else {}),
             "bank_id": row["bank_id"],
             "name": row["name"],
             "content": row["content"],
@@ -22662,6 +22673,44 @@ class MemoryEngine(MemoryEngineInterface):
             "created_at": row["created_at"].isoformat() if row["created_at"] else None,
             "updated_at": row["updated_at"].isoformat() if row["updated_at"] else None,
         }
+
+    async def _authorize_directive_history(self, bank_id: str, request_context: "RequestContext") -> None:
+        await self._authenticate_tenant(request_context)
+        if self._operation_validator:
+            # Reading old text needs both normal read access and independent history permission.
+            for operation in (BankReadOperation.GET_DIRECTIVE, BankReadOperation.LIST_DIRECTIVE_REVISIONS):
+                ctx = BankReadContext(bank_id=bank_id, operation=operation, request_context=request_context)
+                await self._validate_operation(self._operation_validator.validate_bank_read(ctx))
+        # Historical versions may have belonged to different tag scopes.
+        await self._refuse_bank_wide_if_scoped(bank_id, request_context, "access directive history")
+
+    async def list_directive_revisions(
+        self,
+        bank_id: str,
+        directive_id: str,
+        *,
+        limit: int = 100,
+        offset: int = 0,
+        request_context: "RequestContext",
+    ) -> list[dict] | None:
+        """Return published revisions newest first, including a deleted directive's history."""
+        await self._authorize_directive_history(bank_id, request_context)
+        return await directive_revisions.list_history(await self._get_backend(), bank_id, directive_id, limit, offset)
+
+    async def revert_directive(
+        self,
+        bank_id: str,
+        directive_id: str,
+        *,
+        revision: int,
+        expected_revision: int,
+        request_context: "RequestContext",
+    ) -> dict | None:
+        """Restore a published version as a new revision, including a deletion or resurrection."""
+        await self._authorize_directive_history(bank_id, request_context)
+        return await directive_revisions.restore(
+            self, bank_id, directive_id, revision, expected_revision, request_context
+        )
 
     async def list_operations(
         self,

@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "Mentales Modell bearbeiten",
     "actionDryRunRefreshMentalModel": "Aktualisierung des mentalen Modells testen",
     "actionClearMentalModel": "Mentales Modell leeren",
+    "actionRevertDirective": "Direktivenversion wiederherstellen",
     "actionUpdateDirective": "Direktive aktualisieren",
     "actionUpdateBankConfig": "Bank-Konfiguration aktualisieren",
     "actionResetBankConfig": "Bank-Konfiguration zurücksetzen",
@@ -2200,6 +2201,7 @@
         "fetch": "Beobachtung konnte nicht abgerufen werden"
       },
       "directives": {
+        "staleRevision": "Diese Direktive wurde geändert. Laden Sie sie neu und prüfen Sie die aktuelle Version, bevor Sie es erneut versuchen.",
         "list": "Direktiven konnten nicht aufgelistet werden",
         "fetch": "Direktive konnte nicht abgerufen werden",
         "create": "Direktive konnte nicht erstellt werden",

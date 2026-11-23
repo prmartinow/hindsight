@@ -484,6 +484,7 @@ class BankReadOperation(StrEnum):
     GET_BANK_STATS = "get_bank_stats"
     GET_CHUNK = "get_chunk"
     GET_DIRECTIVE = "get_directive"
+    LIST_DIRECTIVE_REVISIONS = "list_directive_revisions"
     GET_DOCUMENT = "get_document"
     GET_DOCUMENT_HISTORY = "get_document_history"
     GET_ENTITY = "get_entity"

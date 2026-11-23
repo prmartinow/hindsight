@@ -912,6 +912,23 @@ hindsight directive delete "$BANK_ID" "$DIRECTIVE_ID" -y
 client.DirectivesAPI.DeleteDirective(ctx, bankID, directiveID).Execute()
 ```
 
+### Revision history on PostgreSQL
+
+Each directive has its own integer revision. Creating, editing, or deleting a directive records its state in the same database transaction as the change. Installing revision history on an existing bank records its current directives as a baseline. Earlier edits cannot be reconstructed from that baseline.
+
+Create allocates a new directive ID and names may repeat. If a create response is lost, list the bank’s directives (including inactive ones) and check IDs, name, and content before retrying.
+
+To avoid overwriting another writer's edit, read the directive's `revision` and send it as `expected_revision` in the PATCH body, or as a query parameter on DELETE. A stale write returns HTTP 409. Read the current state and review the edit before retrying.
+
+To inspect or restore a previous state, use a bank-wide credential with `list_directive_revisions` permission. Restoring also requires the native permission for the resulting create, update, or delete. These endpoints operate on the directive's stable ID and remain accessible after the directive is deleted.
+
+| Method | Path, relative to `/v1/default/banks/{bank_id}` | Request |
+| --- | --- | --- |
+| GET | `/directives/{id}/revisions` | Newest first. Use `limit` (1–1000) and `offset` to page through the list. |
+| POST | `/directives/{id}/revert` | Send the selected `revision` and the latest `expected_revision`. |
+
+Restoring creates a new revision. It can bring back a deleted directive with the same ID or restore a deleted state. Each history entry identifies the operation, the saved directive, whether it was deleted, and when the change was recorded.
+
 ### Directives vs Disposition
 
 | Aspect | Directives | Disposition |

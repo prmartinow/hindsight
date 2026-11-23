@@ -145,6 +145,7 @@ export function ThinkView() {
           ? `${existingDirective.content}\n${feedback.trim()}`
           : feedback.trim();
         await client.updateDirective(currentBank, existingDirective.id, {
+          expected_revision: existingDirective.revision ?? undefined,
           content: newContent,
         });
       } else {

@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "编辑心智模型",
     "actionDryRunRefreshMentalModel": "试运行心智模型刷新",
     "actionClearMentalModel": "清空心智模型",
+    "actionRevertDirective": "恢复指令版本",
     "actionUpdateDirective": "更新指令",
     "actionUpdateBankConfig": "更新记忆库配置",
     "actionResetBankConfig": "重置记忆库配置",
@@ -2200,6 +2201,7 @@
         "fetch": "获取观察失败"
       },
       "directives": {
+        "staleRevision": "这条指令已更改。请重新加载并检查当前版本后再重试。",
         "list": "列出指令失败",
         "fetch": "获取指令失败",
         "create": "创建指令失败",

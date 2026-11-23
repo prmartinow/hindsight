@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "Update Mental Model",
     "actionDryRunRefreshMentalModel": "Preview Mental Model Refresh",
     "actionClearMentalModel": "Clear Mental Model",
+    "actionRevertDirective": "Restore Directive Revision",
     "actionUpdateDirective": "Update Directive",
     "actionUpdateBankConfig": "Update Bank Config",
     "actionResetBankConfig": "Reset Bank Config",
@@ -2200,6 +2201,7 @@
         "fetch": "Failed to get observation"
       },
       "directives": {
+        "staleRevision": "This directive has changed. Reload it and review the current version before trying again.",
         "list": "Failed to list directives",
         "fetch": "Failed to get directive",
         "create": "Failed to create directive",

@@ -289,6 +289,61 @@ async def test_backup_tables_covers_entire_schema(backup_test_schema):
 
 
 @pytest.mark.asyncio
+async def test_restore_directive_history_and_pre_revision_backup(fresh_db_url, tmp_path):
+    """A full restore preserves tombstones/actors; a legacy snapshot starts a baseline."""
+    run_migrations(fresh_db_url)
+    conn = await asyncpg.connect(fresh_db_url)
+    try:
+        bank = "archived-directives"
+        await conn.execute("INSERT INTO banks(bank_id) VALUES ($1)", bank)
+        await conn.execute("SELECT set_config('hindsight.directive_actor','operator',false)")
+        await conn.execute(
+            "INSERT INTO directives(bank_id,name,content) VALUES ($1,'keep','first'),($1,'remove','second')", bank
+        )
+        await conn.execute("UPDATE directives SET content='changed' WHERE bank_id=$1 AND name='keep'", bank)
+        await conn.execute("DELETE FROM directives WHERE bank_id=$1 AND name='remove'", bank)
+        live_query = "SELECT * FROM directives WHERE bank_id=$1 ORDER BY id"
+        history_query = "SELECT * FROM directive_revisions WHERE bank_id=$1 ORDER BY directive_id,revision"
+        live = await conn.fetch(live_query, bank)
+        history = await conn.fetch(history_query, bank)
+        assert len(history) == 4 and any(r["deleted"] for r in history)
+
+        current = tmp_path / "current.zip"
+        await _backup(fresh_db_url, current)
+        damaged = tmp_path / "missing-revisions.zip"
+        with zipfile.ZipFile(current) as source, zipfile.ZipFile(damaged, "w") as target:
+            for member in source.namelist():
+                if member != "directive_revisions.bin":
+                    target.writestr(member, source.read(member))
+        with pytest.raises(ValueError, match="Incomplete directive revision backup"):
+            await _restore(fresh_db_url, damaged)
+        assert await conn.fetch(history_query, bank) == history
+        await conn.execute("DELETE FROM banks WHERE bank_id=$1", bank)
+        await _restore(fresh_db_url, current)
+        assert await conn.fetch(live_query, bank) == live
+        assert await conn.fetch(history_query, bank) == history
+        await conn.execute("UPDATE directives SET content='third' WHERE bank_id=$1", bank)
+        assert await conn.fetchval("SELECT revision FROM directives WHERE bank_id=$1", bank) == 3
+
+        # Make an actual old-format binary COPY: its live table has no revision
+        # column and its manifest has no history table.
+        await conn.execute("CREATE SCHEMA legacy_backup")
+        await conn.execute("CREATE TABLE legacy_backup.banks AS SELECT * FROM banks")
+        await conn.execute("""CREATE TABLE legacy_backup.directives AS SELECT id,bank_id,name,content,
+            priority,is_active,tags,created_at,updated_at FROM directives""")
+        legacy = tmp_path / "legacy.zip"
+        await _backup(fresh_db_url, legacy, schema="legacy_backup", backup_tables=["banks", "directives"])
+        await _restore(fresh_db_url, legacy)
+        (baseline,) = await conn.fetch(history_query, bank)
+        assert (baseline["revision"], baseline["operation"], baseline["directive_id"]) == (1, "baseline", live[0]["id"])
+        assert await conn.fetchval("SELECT content FROM directives WHERE bank_id=$1", bank) == "third"
+        await conn.execute("DELETE FROM directives WHERE bank_id=$1", bank)
+        assert await conn.fetchval("SELECT deleted FROM directive_revisions WHERE bank_id=$1 AND revision=2", bank)
+    finally:
+        await conn.close()
+
+
+@pytest.mark.asyncio
 async def test_backup_restore_roundtrip(backup_test_schema):
     """Test that backup and restore preserves all data correctly."""
     db_url, schema_name, _fq, embeddings = backup_test_schema

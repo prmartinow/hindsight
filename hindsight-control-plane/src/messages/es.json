@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "Editar modelo mental",
     "actionDryRunRefreshMentalModel": "Probar actualización de modelo mental",
     "actionClearMentalModel": "Vaciar modelo mental",
+    "actionRevertDirective": "Restaurar revisión de directiva",
     "actionUpdateDirective": "Actualizar directiva",
     "actionUpdateBankConfig": "Actualizar configuración del banco",
     "actionResetBankConfig": "Restablecer configuración del banco",
@@ -2200,6 +2201,7 @@
         "fetch": "No se pudo obtener la observación"
       },
       "directives": {
+        "staleRevision": "La directiva ha cambiado. Vuelva a cargarla y revise la versión actual antes de intentarlo de nuevo.",
         "list": "No se pudieron listar las directivas",
         "fetch": "No se pudo obtener la directiva",
         "create": "No se pudo crear la directiva",

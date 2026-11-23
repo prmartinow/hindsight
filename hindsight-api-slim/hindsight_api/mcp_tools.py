@@ -47,6 +47,7 @@ _TAG_GROUP_LIST_ADAPTER = TypeAdapter(list[TagGroup])
 
 # Paging bounds for the list tools. They match the HTTP endpoints' Query bounds
 # so a limit rejected over HTTP is rejected over MCP too (#4859).
+_DirectiveRevision = Annotated[int, Field(ge=1)]
 _Offset = Annotated[int, Field(ge=0)]
 _Limit = Annotated[int, Field(ge=0)]
 _Limit1000 = Annotated[int, Field(ge=1, le=1000)]
@@ -90,6 +91,9 @@ _ALL_TOOLS: frozenset[str] = frozenset(
         "clear_mental_model",
         "list_directives",
         "create_directive",
+        "update_directive",
+        "list_directive_revisions",
+        "revert_directive",
         "delete_directive",
         "list_memories",
         "get_memory",
@@ -653,6 +657,7 @@ _READ_ONLY_TOOLS = {
     "list_mental_models",
     "get_mental_model",
     "list_directives",
+    "list_directive_revisions",
     "list_memories",
     "get_memory",
     "list_documents",
@@ -676,6 +681,7 @@ _DESTRUCTIVE_TOOLS = {
     "clear_mental_model",
     "delete_mental_model",
     "delete_directive",
+    "revert_directive",
     "delete_document",
     "invalidate_memory",
     "delete_page_node",
@@ -721,7 +727,7 @@ def register_mcp_tools(
 
         config.knowledge_bank_refuser = _refuse_knowledge_bank
 
-    tools_to_register = canonical_tool_names(config.tools) if config.tools else set(_ALL_TOOLS)
+    tools_to_register = canonical_tool_names(config.tools) if config.tools is not None else set(_ALL_TOOLS)
 
     if "retain" in tools_to_register:
         _register_retain(mcp, memory, config)
@@ -769,6 +775,15 @@ def register_mcp_tools(
 
     if "create_directive" in tools_to_register:
         _register_create_directive(mcp, memory, config)
+
+    if "update_directive" in tools_to_register:
+        _register_update_directive(mcp, memory, config)
+
+    if "list_directive_revisions" in tools_to_register:
+        _register_list_directive_revisions(mcp, memory, config)
+
+    if "revert_directive" in tools_to_register:
+        _register_revert_directive(mcp, memory, config)
 
     if "delete_directive" in tools_to_register:
         _register_delete_directive(mcp, memory, config)
@@ -1012,6 +1027,7 @@ _UNAUDITED_MCP_TOOLS: frozenset[str] = frozenset(
         "get_operation",
         "list_banks",
         "list_directives",
+        "list_directive_revisions",
         "list_documents",
         "list_memories",
         "list_mental_models",
@@ -3554,13 +3570,185 @@ def _register_create_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
             )
 
 
+def _register_update_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
+    async def _run(bank: str, directive_id: str, expected_revision: int, **fields: Any) -> Any:
+        if all(value is None for value in fields.values()):
+            raise _ToolError("Provide at least one directive field to update")
+        directive = await memory.update_directive(
+            bank,
+            directive_id,
+            expected_revision=expected_revision,
+            request_context=_get_request_context(config),
+            **fields,
+        )
+        if directive is None:
+            raise _ToolError("Directive not found")
+        return directive
+
+    if config.include_bank_id_param:
+
+        @mcp.tool(annotations=_tool_annotations("update_directive"), output_schema=None)
+        async def update_directive(
+            directive_id: str,
+            expected_revision: _DirectiveRevision,
+            name: str | None = None,
+            content: str | None = None,
+            priority: int | None = None,
+            is_active: bool | None = None,
+            tags: list[str] | None = None,
+            bank_id: str | None = None,
+        ) -> str:
+            """Edit selected directive fields against the current revision returned by list_directives."""
+            return await _run_tool(
+                config,
+                bank_id=bank_id,
+                as_json=True,
+                action="updating directive",
+                run=lambda bank: _run(
+                    bank,
+                    directive_id,
+                    expected_revision,
+                    name=name,
+                    content=content,
+                    priority=priority,
+                    is_active=is_active,
+                    tags=tags,
+                ),
+            )
+
+    else:
+
+        @mcp.tool(annotations=_tool_annotations("update_directive"))
+        async def update_directive(
+            directive_id: str,
+            expected_revision: _DirectiveRevision,
+            name: str | None = None,
+            content: str | None = None,
+            priority: int | None = None,
+            is_active: bool | None = None,
+            tags: list[str] | None = None,
+        ) -> dict:
+            """Edit selected directive fields against the current revision returned by list_directives."""
+            return await _run_tool(
+                config,
+                bank_id=None,
+                as_json=False,
+                action="updating directive",
+                run=lambda bank: _run(
+                    bank,
+                    directive_id,
+                    expected_revision,
+                    name=name,
+                    content=content,
+                    priority=priority,
+                    is_active=is_active,
+                    tags=tags,
+                ),
+            )
+
+
+def _register_list_directive_revisions(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
+    async def _run(bank: str, directive_id: str, limit: int, offset: int) -> dict:
+        revisions = await memory.list_directive_revisions(
+            bank, directive_id, limit=limit, offset=offset, request_context=_get_request_context(config)
+        )
+        if revisions is None:
+            raise _ToolError("Directive history not found")
+        return {"items": revisions}
+
+    if config.include_bank_id_param:
+
+        @mcp.tool(annotations=_tool_annotations("list_directive_revisions"), output_schema=None)
+        async def list_directive_revisions(
+            directive_id: str,
+            limit: _Limit1000 = 100,
+            offset: _Offset = 0,
+            bank_id: str | None = None,
+        ) -> str:
+            """Read recorded states of a directive newest first, including deletions. Requires bank-wide access."""
+            return await _run_tool(
+                config,
+                bank_id=bank_id,
+                as_json=True,
+                action="listing directive revisions",
+                run=lambda bank: _run(bank, directive_id, limit, offset),
+            )
+
+    else:
+
+        @mcp.tool(annotations=_tool_annotations("list_directive_revisions"))
+        async def list_directive_revisions(
+            directive_id: str,
+            limit: _Limit1000 = 100,
+            offset: _Offset = 0,
+        ) -> dict:
+            """Read recorded states of a directive newest first, including deletions. Requires bank-wide access."""
+            return await _run_tool(
+                config,
+                bank_id=None,
+                as_json=False,
+                action="listing directive revisions",
+                run=lambda bank: _run(bank, directive_id, limit, offset),
+            )
+
+
+def _register_revert_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
+    async def _run(bank: str, directive_id: str, revision: int, expected_revision: int) -> dict:
+        result = await memory.revert_directive(
+            bank,
+            directive_id,
+            revision=revision,
+            expected_revision=expected_revision,
+            request_context=_get_request_context(config),
+        )
+        if result is None:
+            raise _ToolError("Directive revision not found")
+        return result
+
+    if config.include_bank_id_param:
+
+        @mcp.tool(annotations=_tool_annotations("revert_directive"), output_schema=None)
+        async def revert_directive(
+            directive_id: str,
+            revision: _DirectiveRevision,
+            expected_revision: _DirectiveRevision,
+            bank_id: str | None = None,
+        ) -> str:
+            """Restore a historical state as a new revision. Pass the latest revision as expected_revision. Requires bank-wide access."""
+            return await _run_tool(
+                config,
+                bank_id=bank_id,
+                as_json=True,
+                action="reverting directive",
+                run=lambda bank: _run(bank, directive_id, revision, expected_revision),
+            )
+
+    else:
+
+        @mcp.tool(annotations=_tool_annotations("revert_directive"))
+        async def revert_directive(
+            directive_id: str,
+            revision: _DirectiveRevision,
+            expected_revision: _DirectiveRevision,
+        ) -> dict:
+            """Restore a historical state as a new revision. Pass the latest revision as expected_revision. Requires bank-wide access."""
+            return await _run_tool(
+                config,
+                bank_id=None,
+                as_json=False,
+                action="reverting directive",
+                run=lambda bank: _run(bank, directive_id, revision, expected_revision),
+            )
+
+
 def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPToolsConfig) -> None:
     """Register the delete_directive tool."""
 
-    async def _run(target_bank: str, directive_id: str) -> Any:
+    async def _run(target_bank: str, directive_id: str, expected_revision: int | None) -> Any:
         deleted = await memory.delete_directive(
             target_bank,
             directive_id,
+            expected_revision=expected_revision,
             request_context=_get_request_context(config),
         )
         if not deleted:
@@ -3573,14 +3761,16 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
         async def delete_directive(
             directive_id: str,
             bank_id: str | None = None,
+            expected_revision: _DirectiveRevision | None = None,
         ) -> str:
             """
             Delete a directive.
 
-            Permanently removes a directive from the memory bank.
+            Removes a directive from the memory bank.
 
             Args:
                 directive_id: The ID of the directive to delete
+                expected_revision: Reject deletion if this revision is stale.
                 bank_id: Optional bank (defaults to session bank). Use for cross-bank operations.
             """
             return await _run_tool(
@@ -3588,7 +3778,7 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
                 bank_id=bank_id,
                 as_json=True,
                 action="deleting directive",
-                run=lambda target_bank: _run(target_bank, directive_id),
+                run=lambda target_bank: _run(target_bank, directive_id, expected_revision),
                 indent=None,
             )
 
@@ -3597,21 +3787,23 @@ def _register_delete_directive(mcp: FastMCP, memory: MemoryEngine, config: MCPTo
         @mcp.tool(annotations=_tool_annotations("delete_directive"))
         async def delete_directive(
             directive_id: str,
+            expected_revision: _DirectiveRevision | None = None,
         ) -> dict:
             """
             Delete a directive.
 
-            Permanently removes a directive from this memory bank.
+            Removes a directive from this memory bank.
 
             Args:
                 directive_id: The ID of the directive to delete
+                expected_revision: Reject deletion if this revision is stale.
             """
             return await _run_tool(
                 config,
                 bank_id=None,
                 as_json=False,
                 action="deleting directive",
-                run=lambda target_bank: _run(target_bank, directive_id),
+                run=lambda target_bank: _run(target_bank, directive_id, expected_revision),
                 indent=None,
             )
 

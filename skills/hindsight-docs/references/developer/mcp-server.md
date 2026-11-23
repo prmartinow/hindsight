@@ -503,7 +503,7 @@ tagged directives.
 
 ### create_directive
 
-Create a new directive in a bank.
+Create a new directive in a bank. Each call allocates a new ID and names may repeat. If the response is lost, use `list_directives` with `active_only=false`, page through the results, and compare IDs, name, and content before retrying.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -515,6 +515,24 @@ Create a new directive in a bank.
 
 ---
 
+### update_directive
+
+Edit an existing directive on PostgreSQL. Pass its `directive_id`, the `expected_revision` obtained from `list_directives`, and at least one of `name`, `content`, `priority`, `is_active`, or `tags`. Re-read and review the current state if the expected revision is stale.
+
+---
+
+### list_directive_revisions
+
+Inspect a PostgreSQL directive's history newest first. Pass `directive_id` and optionally `limit` (1–1000, default 100) and `offset`. Revisions remain available by ID after deletion. Requires bank-wide access.
+
+---
+
+### revert_directive
+
+Restore a PostgreSQL directive by passing `directive_id`, the historical `revision`, and the latest `expected_revision`. The result is a new revision. Requires bank-wide access.
+
+---
+
 ### delete_directive
 
 Delete a directive by ID.
@@ -522,6 +540,7 @@ Delete a directive by ID.
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `directive_id` | string | Yes | The ID of the directive to delete |
+| `expected_revision` | integer | No | On PostgreSQL, reject deletion if this revision is stale |
 
 ---
 

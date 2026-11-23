@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "メンタルモデルを編集",
     "actionDryRunRefreshMentalModel": "メンタルモデル更新を試行",
     "actionClearMentalModel": "メンタルモデルを空にする",
+    "actionRevertDirective": "ディレクティブのリビジョンを復元",
     "actionUpdateDirective": "ディレクティブを更新",
     "actionUpdateBankConfig": "バンク設定を更新",
     "actionResetBankConfig": "バンク設定をリセット",
@@ -2200,6 +2201,7 @@
         "fetch": "観察の取得に失敗しました"
       },
       "directives": {
+        "staleRevision": "ディレクティブが変更されています。再読み込みして現在のバージョンを確認してから、もう一度お試しください。",
         "list": "ディレクティブの一覧取得に失敗しました",
         "fetch": "ディレクティブの取得に失敗しました",
         "create": "ディレクティブの作成に失敗しました",
