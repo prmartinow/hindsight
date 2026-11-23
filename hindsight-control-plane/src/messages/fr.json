@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "Modifier un modèle mental",
     "actionDryRunRefreshMentalModel": "Tester l'actualisation d'un modèle mental",
     "actionClearMentalModel": "Vider un modèle mental",
+    "actionRevertDirective": "Restaurer une version de directive",
     "actionUpdateDirective": "Mettre à jour une directive",
     "actionUpdateBankConfig": "Mettre à jour la configuration de la banque",
     "actionResetBankConfig": "Réinitialiser la configuration de la banque",
@@ -2200,6 +2201,7 @@
         "fetch": "Impossible de récupérer l'observation"
       },
       "directives": {
+        "staleRevision": "Cette directive a changé. Rechargez-la et vérifiez la version actuelle avant de réessayer.",
         "list": "Impossible de lister les directives",
         "fetch": "Impossible de récupérer la directive",
         "create": "Impossible de créer la directive",

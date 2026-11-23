@@ -84,7 +84,7 @@ export async function PATCH(
       return NextResponse.json(
         localizeApiErrorPayload(request, {
           error: errorText || "Failed to update directive",
-          errorKey: "api.errors.directives.update",
+          errorKey: response.status === 409 ? "api.errors.directives.staleRevision" : "api.errors.directives.update",
         }),
         { status: response.status }
       );
@@ -121,10 +121,10 @@ export async function DELETE(
       );
     }
 
-    const response = await fetch(
-      dataplaneBankUrl(bankId, `/directives/${encodeURIComponent(directiveId)}`),
-      { method: "DELETE", headers: getDataplaneHeaders() }
-    );
+    const url = new URL(dataplaneBankUrl(bankId, `/directives/${encodeURIComponent(directiveId)}`));
+    const expected = new URL(request.url).searchParams.get("expected_revision");
+    if (expected !== null) url.searchParams.set("expected_revision", expected);
+    const response = await fetch(url, { method: "DELETE", headers: getDataplaneHeaders() });
 
     if (!response.ok) {
       const errorText = await response.text();
@@ -132,7 +132,7 @@ export async function DELETE(
       return NextResponse.json(
         localizeApiErrorPayload(request, {
           error: errorText || "Failed to delete directive",
-          errorKey: "api.errors.directives.delete",
+          errorKey: response.status === 409 ? "api.errors.directives.staleRevision" : "api.errors.directives.delete",
         }),
         { status: response.status }
       );

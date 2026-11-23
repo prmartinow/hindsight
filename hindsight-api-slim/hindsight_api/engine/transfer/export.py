@@ -118,6 +118,10 @@ _SKIP_TABLES = frozenset(
         # instance, and failing the alias-vs-bank check on another. Add them to the
         # target deliberately, once it is the bank you mean to route to.
         "bank_aliases",
+        # Directive history contains prior instructions, actors and deleted rules.
+        # Logical transfers carry current config; a clone starts its own revision chain.
+        # Use a full admin backup/restore to reproduce the original audit trail.
+        "directive_revisions",
         # Knowledge-bank documents, passages and vectors belong to banks of kind 'knowledge',
         # never to a memory bank being exported; a memory bank only names the knowledge banks
         # it links (bank config `knowledge_banks`), and that travels with its config.
@@ -442,7 +446,8 @@ async def _dump_bank_rows(conn: Any, table: str, bank_id: str) -> list[dict]:
     rows = await conn.fetch(
         f"SELECT * FROM {fq_table(table)} WHERE bank_id = $1 ORDER BY {_DUMP_ORDER_BY[table]}", bank_id
     )
-    return [{k: v for k, v in dict(row).items() if k not in _DERIVED_COLUMNS} for row in rows]
+    omit = (*_DERIVED_COLUMNS, "revision") if table == "directives" else _DERIVED_COLUMNS
+    return [{k: v for k, v in dict(row).items() if k not in omit} for row in rows]
 
 
 # The tables that grow with a bank's activity rather than its configuration, and the key — unique

@@ -297,7 +297,7 @@ The backup includes:
 - Entities and their relationships
 - Memory units (facts, experiences, observations)
 - Entity cooccurrences and memory links
-- Mental models and directives
+- Mental models, directives and their published revision histories, including deleted directives and actor IDs
 - Webhooks and file storage
 - Internal operational tables (async operations, audit log, graph-maintenance queue, and similar bookkeeping) so a restore reproduces a faithful full-database snapshot
 
@@ -340,6 +340,8 @@ hindsight-admin restore /backups/hindsight-2024-01-15.zip --yes
 # Restore to a specific tenant schema
 hindsight-admin restore /backups/tenant-acme.zip --schema tenant_acme --yes
 ```
+
+Restore uses the table owner’s privileges to suspend the directive journal triggers while loading a snapshot. A backup from before directive revisions existed establishes one baseline per restored live directive. Logical bank transfers and clones carry the current rules into the destination, where each begins a new history. Use a full backup and restore to preserve the original revisions and tombstones.
 
 :::warning Data Loss
 Restore will **delete all existing data** in the target schema before importing the backup. Always verify you have a recent backup before performing a restore.

@@ -61,6 +61,7 @@ function getActionOptions(t: TranslateFn) {
     { value: "delete_mental_model", label: t("actionDeleteMentalModel") },
     { value: "create_directive", label: t("actionCreateDirective") },
     { value: "update_directive", label: t("actionUpdateDirective") },
+    { value: "revert_directive", label: t("actionRevertDirective") },
     { value: "delete_directive", label: t("actionDeleteDirective") },
     { value: "create_bank", label: t("actionCreateBank") },
     { value: "update_bank", label: t("actionUpdateBank") },

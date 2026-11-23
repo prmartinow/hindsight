@@ -2888,7 +2888,10 @@ async def test_bank_copy_carries_directives_and_webhooks(memory, request_context
     target = _unique_bank("copy_dst")
     try:
         await _retain(memory, source, "Dana works at Vectorize.", request_context, "doc-1")
-        await memory.create_directive(source, name="tone", content="Answer briefly.", request_context=request_context)
+        rule = await memory.create_directive(
+            source, name="tone", content="Prior wording", request_context=request_context
+        )
+        await memory.update_directive(source, rule["id"], content="Answer briefly.", request_context=request_context)
         backend = await memory._get_backend()
         async with acquire_with_retry(backend) as conn:
             await conn.execute(
@@ -2911,6 +2914,10 @@ async def test_bank_copy_carries_directives_and_webhooks(memory, request_context
         directives = await memory.list_directives(target, active_only=False, request_context=request_context)
         webhooks = await memory.list_webhooks(target, request_context=request_context)
         assert [d["name"] for d in directives.items] == ["tone"]
+        (revision,) = await memory.list_directive_revisions(
+            target, directives.items[0]["id"], request_context=request_context
+        )
+        assert (revision["revision"], revision["snapshot"]["content"]) == (1, "Answer briefly.")
         assert [w["url"] for w in webhooks["items"]] == ["https://example.com/hook"]
 
         # Fresh ids: keeping the source's is what made the insert a no-op. Read

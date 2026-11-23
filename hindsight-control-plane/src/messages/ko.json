@@ -1511,6 +1511,7 @@
     "actionUpdateMentalModel": "멘탈 모델 편집",
     "actionDryRunRefreshMentalModel": "멘탈 모델 새로고침 미리보기",
     "actionClearMentalModel": "멘탈 모델 비우기",
+    "actionRevertDirective": "지시문 버전 복원",
     "actionUpdateDirective": "지시문 업데이트",
     "actionUpdateBankConfig": "뱅크 설정 업데이트",
     "actionResetBankConfig": "뱅크 설정 초기화",
@@ -2200,6 +2201,7 @@
         "fetch": "관찰을 가져오지 못했습니다"
       },
       "directives": {
+        "staleRevision": "지시문이 변경되었습니다. 다시 시도하기 전에 새로고침하고 현재 버전을 검토하세요.",
         "list": "지시문 목록을 가져오지 못했습니다",
         "fetch": "지시문을 가져오지 못했습니다",
         "create": "지시문을 생성하지 못했습니다",

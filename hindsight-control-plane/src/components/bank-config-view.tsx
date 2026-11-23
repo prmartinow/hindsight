@@ -268,7 +268,14 @@ function getMcpToolGroups(t: (key: string) => string): McpToolGroup[] {
     {
       key: "directives",
       label: t("mcpGroupDirectives"),
-      tools: ["list_directives", "create_directive", "delete_directive"],
+      tools: [
+        "list_directives",
+        "create_directive",
+        "update_directive",
+        "list_directive_revisions",
+        "revert_directive",
+        "delete_directive",
+      ],
     },
     {
       key: "memories",
@@ -323,6 +330,9 @@ const MCP_ALL_TOOLS: string[] = [
   "clear_mental_model",
   "list_directives",
   "create_directive",
+  "update_directive",
+  "list_directive_revisions",
+  "revert_directive",
   "delete_directive",
   "list_memories",
   "get_memory",

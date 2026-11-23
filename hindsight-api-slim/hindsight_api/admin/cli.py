@@ -80,6 +80,7 @@ BACKUP_TABLES = [
     "mental_model_history",
     "knowledge_pages",
     "directives",
+    "directive_revisions",
     "async_operations",
     "webhooks",
     "file_storage",
@@ -439,6 +440,20 @@ async def _restore(
             # actionable error without risking the target's existing data.
             restore_plans = await _validate_restore_schema(conn, manifest, schema)
 
+            restore_revision_history = "directive_revisions" in backup_tables
+            has_revision_history = "directive_revisions" in manifest["tables"]
+            if restore_revision_history:
+                # A missing history file from a versioned backup is corruption. Only
+                # backups from before the revision column legitimately omit history.
+                directives = manifest["tables"].get("directives", {})
+                has_revision_column = any(c["name"] == "revision" for c in directives.get("columns", []))
+                if has_revision_column != has_revision_history or (
+                    has_revision_history and not {"directives.bin", "directive_revisions.bin"}.issubset(zf.namelist())
+                ):
+                    raise ValueError("Incomplete directive revision backup")
+                rule_table = f'{_quote_identifier(schema)}."directives"'
+                history_table = f'{_quote_identifier(schema)}."directive_revisions"'
+
             # Use a transaction for atomic restore - either all tables are
             # restored or none are, preventing partial/inconsistent state.
             async with conn.transaction():
@@ -450,6 +465,15 @@ async def _restore(
                 await sql_memories().admin_truncate_tables(
                     conn=conn, schema=schema, tables=list(reversed(backup_tables))
                 )
+
+                if restore_revision_history:
+                    # TRUNCATE already holds ACCESS EXCLUSIVE through commit. COPY must
+                    # reproduce versions verbatim; only suspend the two journal triggers,
+                    # leaving all constraints and other triggers in force.
+                    await conn.execute(
+                        f"ALTER TABLE {rule_table} DISABLE TRIGGER directive_assign_revision, "
+                        "DISABLE TRIGGER directive_record_revision"
+                    )
 
                 # Restore tables in forward order
                 for i, table in enumerate(backup_tables, 1):
@@ -472,6 +496,17 @@ async def _restore(
                         columns=plan.columns,
                         source=buffer,
                         format="binary",
+                    )
+
+                if restore_revision_history:
+                    if not has_revision_history:
+                        await conn.execute(
+                            f"INSERT INTO {history_table} (bank_id, directive_id, revision, operation, deleted, snapshot) "
+                            f"SELECT d.bank_id,d.id,d.revision,'baseline',FALSE,to_jsonb(d) FROM {rule_table} d"
+                        )
+                    await conn.execute(
+                        f"ALTER TABLE {rule_table} ENABLE TRIGGER directive_assign_revision, "
+                        "ENABLE TRIGGER directive_record_revision"
                     )
 
                 typer.echo("  Synchronizing identity sequences...")

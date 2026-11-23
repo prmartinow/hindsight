@@ -76,6 +76,19 @@ export type RetainContentBlock =
   | { type: "image"; source: RetainAttachmentSource }
   | { type: "file"; source: RetainAttachmentSource; filename?: string };
 
+export interface Directive {
+  id: string;
+  bank_id: string;
+  name: string;
+  content: string;
+  priority: number;
+  is_active: boolean;
+  tags: string[];
+  created_at: string;
+  updated_at: string;
+  revision?: number | null;
+}
+
 export interface WebhookHttpConfig {
   method: string;
   timeout_seconds: number;
@@ -1619,17 +1632,7 @@ export class ControlPlaneClient {
     }
     const query = params.toString();
     return this.fetchApi<{
-      items: Array<{
-        id: string;
-        bank_id: string;
-        name: string;
-        content: string;
-        priority: number;
-        is_active: boolean;
-        tags: string[];
-        created_at: string;
-        updated_at: string;
-      }>;
+      items: Array<Directive>;
       /** Every directive matching the filter, not just this page. */
       total: number;
       limit: number;
@@ -1664,17 +1667,7 @@ export class ControlPlaneClient {
       tags?: string[];
     }
   ) {
-    return this.fetchApi<{
-      id: string;
-      bank_id: string;
-      name: string;
-      content: string;
-      priority: number;
-      is_active: boolean;
-      tags: string[];
-      created_at: string;
-      updated_at: string;
-    }>(bankApi(bankId, "/directives"), {
+    return this.fetchApi<Directive>(bankApi(bankId, "/directives"), {
       method: "POST",
       body: JSON.stringify(params),
     });
@@ -1684,24 +1677,15 @@ export class ControlPlaneClient {
    * Get a directive
    */
   async getDirective(bankId: string, directiveId: string) {
-    return this.fetchApi<{
-      id: string;
-      bank_id: string;
-      name: string;
-      content: string;
-      priority: number;
-      is_active: boolean;
-      tags: string[];
-      created_at: string;
-      updated_at: string;
-    }>(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}`));
+    return this.fetchApi<Directive>(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}`));
   }
 
   /**
    * Delete a directive
    */
-  async deleteDirective(bankId: string, directiveId: string) {
-    return this.fetchApi(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}`), {
+  async deleteDirective(bankId: string, directiveId: string, expectedRevision?: number | null) {
+    const query = expectedRevision == null ? "" : `?expected_revision=${expectedRevision}`;
+    return this.fetchApi(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}${query}`), {
       method: "DELETE",
     });
   }
@@ -1713,6 +1697,7 @@ export class ControlPlaneClient {
     bankId: string,
     directiveId: string,
     params: {
+      expected_revision?: number;
       name?: string;
       content?: string;
       priority?: number;
@@ -1720,17 +1705,7 @@ export class ControlPlaneClient {
       tags?: string[];
     }
   ) {
-    return this.fetchApi<{
-      id: string;
-      bank_id: string;
-      name: string;
-      content: string;
-      priority: number;
-      is_active: boolean;
-      tags: string[];
-      created_at: string;
-      updated_at: string;
-    }>(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}`), {
+    return this.fetchApi<Directive>(bankApi(bankId, `/directives/${encodeURIComponent(directiveId)}`), {
       method: "PATCH",
       body: JSON.stringify(params),
     });

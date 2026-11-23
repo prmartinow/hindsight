@@ -3376,6 +3376,7 @@ class DirectiveResponse(BaseModel):
     tags: list[str] = FieldWithDefault(list)
     created_at: str | None = None
     updated_at: str | None = None
+    revision: int | None = Field(default=None, description="Current per-directive revision on PostgreSQL")
 
 
 class DirectiveListResponse(BaseModel):
@@ -3408,6 +3409,7 @@ class CreateDirectiveRequest(BaseModel):
 class UpdateDirectiveRequest(BaseModel):
     """Request model for updating a directive."""
 
+    expected_revision: int | None = Field(default=None, ge=1, description="Reject the edit if this revision is stale")
     name: str | None = Field(default=None, description="New name")
     content: str | None = Field(default=None, description="New content")
     priority: int | None = Field(
@@ -3415,6 +3417,25 @@ class UpdateDirectiveRequest(BaseModel):
     )
     is_active: bool | None = Field(default=None, description="New active status")
     tags: list[str] | None = Field(default=None, description="New tags")
+
+
+class DirectiveRevisionResponse(BaseModel):
+    """A recorded state of one directive, including the last values on deletion."""
+
+    bank_id: str
+    directive_id: str
+    revision: int
+    restored_from_revision: int | None = None
+    operation: str
+    deleted: bool
+    snapshot: dict[str, Any]
+    actor_id: str | None = None
+    recorded_at: str
+
+
+class RevertDirectiveRequest(BaseModel):
+    revision: int = Field(ge=1, description="Historical revision to restore")
+    expected_revision: int = Field(ge=1, description="Current revision the caller has reviewed")
 
 
 # =========================================================================
@@ -7292,6 +7313,7 @@ def _register_routes(app: FastAPI):
         description="Update a directive's properties.",
         operation_id="update_directive",
         tags=["Directives"],
+        responses={409: {"description": "The current directive revision has changed."}},
     )
     @audited("update_directive", request_param="body")
     async def api_update_directive(
@@ -7305,6 +7327,7 @@ def _register_routes(app: FastAPI):
             directive = await app.state.memory.update_directive(
                 bank_id=bank_id,
                 directive_id=directive_id,
+                expected_revision=body.expected_revision,
                 name=body.name,
                 content=body.content,
                 priority=body.priority,
@@ -7330,17 +7353,20 @@ def _register_routes(app: FastAPI):
         description="Delete a directive.",
         operation_id="delete_directive",
         tags=["Directives"],
+        responses={409: {"description": "The current directive revision has changed."}},
     )
     @audited("delete_directive", request_param=None)
     async def api_delete_directive(
         bank_id: str,
         directive_id: str,
+        expected_revision: int | None = Query(None, ge=1, description="Reject deletion if this revision is stale"),
         request_context: RequestContext = Depends(get_request_context),
     ):
         """Delete a directive."""
         try:
             deleted = await app.state.memory.delete_directive(
                 bank_id=bank_id,
+                expected_revision=expected_revision,
                 directive_id=directive_id,
                 request_context=request_context,
             )
@@ -7355,6 +7381,73 @@ def _register_routes(app: FastAPI):
             raise
         except Exception as e:
             raise _internal_error(e, f"DELETE /v1/default/banks/{bank_id}/directives/{directive_id}")
+
+    @app.get(
+        "/v1/default/banks/{bank_id}/directives/{directive_id}/revisions",
+        response_model=list[DirectiveRevisionResponse],
+        summary="List directive revisions",
+        description="Read a directive's recorded states newest first, including deletions. Requires bank-wide access.",
+        operation_id="list_directive_revisions",
+        tags=["Directives"],
+    )
+    async def api_list_directive_revisions(
+        bank_id: str,
+        directive_id: str,
+        limit: int = Query(100, ge=1, le=1000),
+        offset: int = Query(0, ge=0),
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            revisions = await app.state.memory.list_directive_revisions(
+                bank_id, directive_id, limit=limit, offset=offset, request_context=request_context
+            )
+            if revisions is None:
+                raise HTTPException(status_code=404, detail="Directive history not found")
+            return revisions
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"GET /v1/default/banks/{bank_id}/directives/{directive_id}/revisions")
+
+    @app.post(
+        "/v1/default/banks/{bank_id}/directives/{directive_id}/revert",
+        response_model=DirectiveRevisionResponse,
+        summary="Revert a directive",
+        description="Record a new revision restoring the selected state. Requires bank-wide access.",
+        operation_id="revert_directive",
+        tags=["Directives"],
+        responses={409: {"description": "The current directive revision has changed."}},
+    )
+    @audited("revert_directive", request_param="body")
+    async def api_revert_directive(
+        bank_id: str,
+        directive_id: str,
+        body: RevertDirectiveRequest,
+        request_context: RequestContext = Depends(get_request_context),
+    ):
+        try:
+            result = await app.state.memory.revert_directive(
+                bank_id,
+                directive_id,
+                revision=body.revision,
+                expected_revision=body.expected_revision,
+                request_context=request_context,
+            )
+            if result is None:
+                raise HTTPException(status_code=404, detail="Directive revision not found")
+            return result
+        except OperationValidationError as e:
+            raise HTTPException(status_code=e.status_code, detail=e.reason)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        except (AuthenticationError, HTTPException):
+            raise
+        except Exception as e:
+            raise _internal_error(e, f"POST /v1/default/banks/{bank_id}/directives/{directive_id}/revert")
 
     @app.get(
         "/v1/default/banks/{bank_id}/documents",

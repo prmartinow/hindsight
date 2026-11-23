@@ -95,6 +95,9 @@ The local server exposes the full tool set (29 tools in multi-bank mode, 26 in s
 |------|-------------|
 | `list_directives` | List directives that guide memory processing |
 | `create_directive` | Create a new directive |
+| `update_directive` | Edit a directive against its current revision |
+| `list_directive_revisions` | Read recorded directive states on PostgreSQL |
+| `revert_directive` | Restore a previous state as a new revision |
 | `delete_directive` | Delete a directive |
 
 **Memory Browsing**
