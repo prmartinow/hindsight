@@ -2642,27 +2642,27 @@ async def _trigger_mental_model_refreshes(
                   AND (trigger->>'refresh_after_consolidation')::boolean = true
                   AND (
                     (tags IS NOT NULL AND tags != '{{}}' AND tags && $2::varchar[])
-                    OR (trigger ? 'tag_groups')
+                    OR {_MM_SCOPE_REACHES_UNTAGGED}
                   )
                 """,
                 bank_id,
                 consolidated_tags,
             )
         else:
-            candidates = []
-
-        from hindsight_api.engine.memory_engine import _resolve_refresh_tag_filtering
+            candidates = await conn.fetch(
+                f"""
+                SELECT id, name, tags, last_refreshed_at, last_memory_seen_at, trigger
+                FROM {fq_table("mental_models")}
+                WHERE bank_id = $1
+                  AND (trigger->>'refresh_after_consolidation')::boolean = true
+                  AND {_MM_SCOPE_REACHES_UNTAGGED}
+                """,
+                bank_id,
+            )
 
         rows = []
         for candidate in candidates:
-            trigger = candidate["trigger"] or {}
-            if isinstance(trigger, str):
-                trigger = json.loads(trigger)
-            try:
-                scope = _resolve_refresh_tag_filtering(candidate["tags"], trigger)
-            except (TypeError, ValueError):
-                continue  # Malformed scope must never enqueue an unrestricted refresh.
-            if scope.is_scoped and await memory_engine.compute_mental_model_is_stale(conn, bank_id, candidate):
+            if await memory_engine.compute_mental_model_is_stale(conn, bank_id, candidate):
                 rows.append(candidate)
 
     if not rows:

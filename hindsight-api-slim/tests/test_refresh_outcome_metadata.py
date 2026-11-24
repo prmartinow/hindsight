@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from hindsight_api.api.http import OperationResponse, OperationStatusResponse
-from hindsight_api.engine.memory_engine import MemoryEngine
+from hindsight_api.engine.memory_engine import MemoryEngine, _operation_details
 
 # Imported at module scope on purpose. test_reflect_tokenizer_lazy_load purges
 # ``hindsight_api.engine.reflect*`` from sys.modules, so a late import inside a
@@ -27,20 +27,7 @@ from hindsight_api.engine.reflect import ReflectNoAnswerError, ReflectToolExecut
 from hindsight_api.engine.response_models import LLMCallResult, ReflectResult, TokenUsage
 from hindsight_api.extensions import MentalModelCandidateContext, OperationValidatorExtension, ValidationResult
 from hindsight_api.worker.exceptions import RetryTaskAt
-
-
-def stub_refresh_has_sources(monkeypatch, memory: MemoryEngine) -> None:
-    """Tell a mental-model refresh that its scoped sources are non-empty."""
-    from datetime import datetime, timezone
-
-    from hindsight_api.engine.memory_engine import _MentalModelScopeWatermark
-
-    now = datetime.now(timezone.utc)
-
-    async def _scope_watermark(*args, **kwargs) -> _MentalModelScopeWatermark:
-        return _MentalModelScopeWatermark(newest_in_scope=now, watermark=now)
-
-    monkeypatch.setattr(memory, "_mental_model_scope_watermark", _scope_watermark)
+from tests.conftest import stub_refresh_has_sources
 
 
 @pytest.fixture
@@ -53,7 +40,6 @@ async def bank_with_model(memory: MemoryEngine, request_context):
         name="Outcome Meta Model",
         source_query="What outcome fields does refresh expose?",
         content="Original content",
-        tags=["outcome-meta"],
         request_context=request_context,
     )
     yield memory, bank_id, mm
@@ -240,7 +226,6 @@ async def delta_bank(memory: MemoryEngine, request_context):
         name="Team Info",
         source_query="Tell me about the team",
         content="# Team\n\nAlice is the lead.\n",
-        tags=["team"],
         trigger={"mode": "delta"},
         request_context=request_context,
     )
@@ -273,7 +258,6 @@ async def test_preserved_and_rewritten_differ_only_by_outcome(memory: MemoryEngi
             name="Team Info",
             source_query="Tell me about the team",
             content=document,
-            tags=["team"],
             trigger={"mode": mode},
             request_context=request_context,
         )
@@ -414,7 +398,6 @@ class _OutcomeCase:
     reflect_text: str
     expect_outcome: str
     why: str
-    tags: list[str] | None = field(default_factory=lambda: ["team"])
     facts: list[dict] = field(default_factory=lambda: list(_FACTS))
     delta_returns: Any = field(default_factory=list)
     unparseable_baseline: bool = False
@@ -609,16 +592,6 @@ _OUTCOME_CASES = [
         why="a retrieval tool raised, so the run never gathered the evidence it was asked for (#2894)",
     ),
     _OutcomeCase(
-        id="unscoped_sources",
-        mode="full",
-        reflect_text="",
-        tags=[],
-        expect_outcome="refresh_failed_error",
-        expect_failure_reason="unscoped_sources",
-        expect_retry=False,
-        why="refresh requires a nonempty positive exact source scope; unscoped models are rejected",
-    ),
-    _OutcomeCase(
         id="unexpected_error",
         mode="full",
         reflect_text="",
@@ -653,7 +626,6 @@ async def test_refresh_outcome_matrix(case: _OutcomeCase, memory: MemoryEngine, 
         name="Team Info",
         source_query="Tell me about the team",
         content=_BASELINE,
-        tags=case.tags,
         trigger=trigger,
         request_context=request_context,
     )
@@ -769,7 +741,6 @@ async def test_a_redraft_is_told_why_the_earlier_drafts_were_rejected(
         source_query="Tell me about the team",
         content=_BASELINE,
         trigger={"mode": "full"},
-        tags=["outcome-meta"],
         request_context=request_context,
     )
     contexts: list[str] = []
@@ -799,6 +770,16 @@ async def test_a_redraft_is_told_why_the_earlier_drafts_were_rejected(
     await memory.delete_bank(bank_id, request_context=request_context)
 
 
+def test_historical_unscoped_refresh_reason_is_readable():
+    details = _operation_details(
+        "refresh_mental_model",
+        {"outcome": "refresh_failed_error", "failure_reason": "unscoped_sources"},
+    )
+
+    assert details is not None
+    assert details["failure_reason"] == "unscoped_sources"
+
+
 def test_outcome_matrix_covers_every_outcome_and_reason():
     """The table above must stay exhaustive as the vocabularies grow.
 
@@ -817,7 +798,8 @@ def test_outcome_matrix_covers_every_outcome_and_reason():
     # is unreachable through the pipeline today — every branch that reaches the
     # delta-not-applied guard sets a more specific reason. It is covered by
     # test_delta_failure_reason_narrows_the_fallback_vocabulary instead.
-    assert covered_reasons == set(get_args(RefreshFailureReason)) - {"delta_not_applied"}
+    # ``unscoped_sources`` is only read from historical operation records.
+    assert covered_reasons == set(get_args(RefreshFailureReason)) - {"delta_not_applied", "unscoped_sources"}
 
 
 @pytest.mark.asyncio

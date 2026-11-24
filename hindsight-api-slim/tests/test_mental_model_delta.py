@@ -30,11 +30,9 @@ import pytest
 from hindsight_api import MemoryEngine, RequestContext
 from hindsight_api.engine.llm_wrapper import LLMConfig
 from hindsight_api.engine.maintenance import MaintenanceLoop
-from hindsight_api.engine.memory_engine import _MentalModelScopeWatermark
 from hindsight_api.engine.response_models import LLMCallResult, ReflectResult, TokenUsage
 from hindsight_api.engine.retain import embedding_utils
-
-_SOURCE_TAG = "delta-refresh-test"
+from tests.conftest import stub_refresh_has_sources
 
 
 def _canned_reflect_result(text: str, facts: list[dict] | None = None) -> ReflectResult:
@@ -54,7 +52,7 @@ def _canned_reflect_result(text: str, facts: list[dict] | None = None) -> Reflec
 
 
 @pytest.fixture
-def patch_reflect(monkeypatch, memory):
+def patch_reflect(monkeypatch):
     """Helper that patches memory.reflect_async to return a canned result and records the call.
 
     Usage:
@@ -62,16 +60,6 @@ def patch_reflect(monkeypatch, memory):
         await memory.refresh_mental_model(...)
         assert len(calls) == 1
     """
-
-    original_watermark = memory._mental_model_scope_watermark
-
-    async def scoped_watermark(bank_id, model_id, scope, fact_types, refresh_cutoff, created_after):
-        reading = await original_watermark(bank_id, model_id, scope, fact_types, refresh_cutoff, created_after)
-        if reading.newest_in_scope is None:
-            # A canned reflect result stands in for scoped evidence when no row
-            # was seeded. Only real rows should advance the persisted watermark.
-            return _MentalModelScopeWatermark(newest_in_scope=refresh_cutoff, watermark=reading.watermark)
-        return reading
 
     def _install(memory: MemoryEngine, *, text: str, facts: list[dict] | None = None, document: Any = None):
         calls: list[dict] = []
@@ -84,7 +72,7 @@ def patch_reflect(monkeypatch, memory):
             return result
 
         monkeypatch.setattr(memory, "reflect_async", fake_reflect_async)
-        monkeypatch.setattr(memory, "_mental_model_scope_watermark", scoped_watermark)
+        stub_refresh_has_sources(monkeypatch, memory)
         return calls
 
     return _install
@@ -158,7 +146,7 @@ async def _seed_fact_row(memory: MemoryEngine, bank_id: str, text: str) -> str:
                     fact_text=text,
                     embedding=(await memory.embeddings.encode([text]))[0],
                     fact_type="observation",
-                    tags=[_SOURCE_TAG],
+                    tags=[],
                     context=None,
                     document_id=None,
                     chunk_id=None,
@@ -193,7 +181,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal content.",
@@ -228,7 +215,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal content.",
@@ -278,7 +264,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Homelab",
             source_query="What runs in the homelab?",
             content="# Homelab\n\nA NAS.",
@@ -317,7 +302,6 @@ class TestDeltaRefreshPlumbing:
         authored = "## Ops\n\n| Name | Role |\n|---|---|\n| Alice | Lead\n\n- top\n  - nested\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=authored,
@@ -359,7 +343,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="## Old\n\nOriginal.\n",
@@ -406,7 +389,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content="## Old\n\nOriginal.\n",
@@ -452,7 +434,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content="## Old\n\nOriginal.\n",
@@ -480,7 +461,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content="## Old\n\nOriginal.\n",
@@ -512,7 +492,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content="## Old\n\nOriginal.\n",
@@ -555,7 +534,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nOriginal content.\n",
@@ -631,7 +609,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="",  # no existing content
@@ -670,7 +647,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Backend Overview",
             source_query="What is the backend architecture?",
             content="",
@@ -707,7 +683,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nBaseline.",
@@ -757,7 +732,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nBaseline.",
@@ -822,7 +796,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Preferences\n\nThe user prefers concise answers.\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="User Preferences",
             source_query="What are the user's durable collaboration preferences?",
             content=existing,
@@ -849,13 +822,12 @@ class TestDeltaRefreshPlumbing:
             fact_updated_at = await conn.fetchval(
                 """
                 INSERT INTO memory_units (id, bank_id, text, fact_type, tags, created_at, updated_at)
-                VALUES ($1, $2, 'The build server uses Linux.', 'world', $3::varchar[],
+                VALUES ($1, $2, 'The build server uses Linux.', 'world', ARRAY[]::varchar[],
                         NOW() - INTERVAL '2 minutes', NOW() - INTERVAL '2 minutes')
                 RETURNING updated_at
                 """,
                 uuid.uuid4(),
                 bank_id,
-                [_SOURCE_TAG],
             )
             stale_row = await conn.fetchrow(
                 "SELECT id, tags, trigger, last_refreshed_at, last_memory_seen_at "
@@ -953,7 +925,6 @@ class TestDeltaRefreshPlumbing:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="User Preferences",
             source_query="What are the user's durable collaboration preferences?",
             content="# Preferences\n\nThe user prefers concise answers.\n",
@@ -978,13 +949,12 @@ class TestDeltaRefreshPlumbing:
             baseline_updated_at = await conn.fetchval(
                 """
                 INSERT INTO memory_units (id, bank_id, text, fact_type, tags, created_at, updated_at)
-                VALUES ($1, $2, 'The user is on the platform team.', 'world', $3::varchar[],
+                VALUES ($1, $2, 'The user is on the platform team.', 'world', ARRAY[]::varchar[],
                         NOW() - INTERVAL '2 minutes', NOW() - INTERVAL '2 minutes')
                 RETURNING updated_at
                 """,
                 uuid.uuid4(),
                 bank_id,
-                [_SOURCE_TAG],
             )
 
         reflect_calls = patch_reflect(memory, text="No relevant preference changes.", facts=[])
@@ -1004,11 +974,10 @@ class TestDeltaRefreshPlumbing:
                 (id, bank_id, text, fact_type, tags, created_at, updated_at)
             VALUES
                 ($1, $2, 'The user now prefers detailed answers.', 'world',
-                 $3::varchar[], NOW(), NOW())
+                 ARRAY[]::varchar[], NOW(), NOW())
             """,
             straddle_fact_id,
             bank_id,
-            [_SOURCE_TAG],
         )
 
         straddle_committed = False
@@ -1081,7 +1050,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice — lead\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1174,7 +1142,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice is the lead.\n",
@@ -1238,7 +1205,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice — lead\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1307,7 +1273,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice — lead\n",
@@ -1361,7 +1326,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice — lead\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1454,7 +1418,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1509,7 +1472,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nExisting.\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1590,7 +1552,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1660,7 +1621,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice is the lead.\n",
@@ -1739,7 +1699,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice is the lead.\n",
@@ -1798,7 +1757,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -1855,7 +1813,6 @@ class TestDeltaRefreshPlumbing:
 
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content="# Team\n\nAlice is the lead.\n",
@@ -1905,7 +1862,6 @@ class TestDeltaRefreshPlumbing:
         existing = "# Team\n\nAlice is the lead.\n\n## Members\n\n- Alice\n"
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="Team Info",
             source_query="Tell me about the team",
             content=existing,
@@ -2657,7 +2613,6 @@ class TestDocumentBudget:
         await memory.ensure_bank_profile(bank_id, request_context=request_context)
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content="## Ops\n\nOriginal.\n",
@@ -2695,7 +2650,6 @@ class TestDocumentBudget:
         long_body = " ".join(f"sentence number {i} about the API." for i in range(200))
         mm = await memory.create_mental_model(
             bank_id=bank_id,
-            tags=[_SOURCE_TAG],
             name="API Reference",
             source_query="Document the API",
             content=f"## Ops\n\n{long_body}\n",

@@ -26,7 +26,6 @@ from hindsight_api.engine.schema import fq_table
 TOPIC = "What are the user's durable collaboration preferences?"
 RELEVANT = "The user prefers bullet points over prose."
 UNRELATED = "The build server runs Linux."
-PAGE_SCOPE = ["topic:preferences"]
 
 
 @dataclass(frozen=True)
@@ -43,8 +42,7 @@ async def _page_with_new_memories(memory: MemoryEngine, request_context: Request
         name="User Preferences",
         source_query=TOPIC,
         content="# Preferences\n\nThe user prefers concise answers.\n",
-        tags=PAGE_SCOPE,
-        trigger={"mode": "delta", "tags_match": "all_strict"},
+        trigger={"mode": "delta"},
         request_context=request_context,
     )
     assert memory._pool is not None
@@ -61,12 +59,11 @@ async def _page_with_new_memories(memory: MemoryEngine, request_context: Request
         for text in (RELEVANT, UNRELATED):
             await conn.execute(
                 "INSERT INTO memory_units (id, bank_id, text, fact_type, tags, created_at, updated_at) "
-                "VALUES ($1, $2, $3, 'world', $4, NOW() - INTERVAL '2 minutes', "
+                "VALUES ($1, $2, $3, 'world', ARRAY[]::varchar[], NOW() - INTERVAL '2 minutes', "
                 "NOW() - INTERVAL '2 minutes')",
                 uuid.uuid4(),
                 bank_id,
                 text,
-                PAGE_SCOPE,
             )
     return _Page(bank_id=bank_id, mm_id=mm["id"])
 
